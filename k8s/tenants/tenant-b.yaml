@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: crewai-worker-tenant-b
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crewai-worker
+      tenant: tenant-b
+  template:
+    metadata:
+      labels:
+        app:
+          crewai-worker
+        tenant:
+          tenant-b
+    spec:
+      containers:
+        -name: worker
+        image: crewai-platform:latest
+        command:
+          - poetry
+          - run
+          - worker
+          - "-Q"
+          - "crewai.tenant_b"
+        envFrom:
+          - configMapRef:
+              name: crewai-config

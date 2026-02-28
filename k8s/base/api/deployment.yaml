@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crewai-api
+  namespace: crewai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crewai-api
+  template:
+    metadata:
+      labels:
+        app: crewai-api
+    spec:
+      containers:
+        - name: api
+          image: crewai-crewos:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: crewai-config
+            - secretRef:
+                name: crewai-secret
+          command: ["poetry", "run", "dev"]

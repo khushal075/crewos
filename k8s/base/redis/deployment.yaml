@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: crewai-redis
+  namespace: crewai
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crewai-redis
+  template:
+    metadata:
+      labels:
+        app: crewai-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7
+          ports:
+            - containerPort: 6379

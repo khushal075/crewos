@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: crewai-worker-tenant-a
+
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: crewai-worker
+      tenant: tenant-a
+  templates:
+    metadata:
+      labels:
+        app: crewai-worker
+        tenant: tenant-a
+    spec:
+      containers:
+        - name: worker
+          image: crewai-platform:latest
+          command:
+            - poetry
+            - run
+            - worker
+            - "-Q"
+            - "crewai.tenant_a"
+          envFrom:
+            - configMapRef:
+                name: crewai-config
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"

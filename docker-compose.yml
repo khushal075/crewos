@@ -1,0 +1,73 @@
+services:
+  # ===============================
+  # Redis (Broker + Backend)
+  # ===============================
+  redis:
+    image: redis:7
+    container_name: crewai_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  # =============================
+  # Ollama (LLM Server)
+  # =============================
+  ollama:
+    image: ollama/ollama:0.15.6
+    container_name: crewai_ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    command: ["serve"]
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          memory: 8g
+
+  # =============================
+  # FastAPI Backend
+  # =============================
+  backend:
+    build: .
+    container_name: crewai_backend
+    env_file:
+      - k8crew.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+      - ollama
+    volumes:
+      - ./crewos:/crewos/crewos
+    command: ["poetry", "run", "dev"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # =============================
+  # Worker (CrewAI tasks)
+  # =============================
+  worker:
+    build: .
+    container_name: crewai_worker
+    env_file:
+      - k8crew.env
+    depends_on:
+      - redis
+      - ollama
+    volumes:
+      - ./crewos:/crewos/crewos
+    command: ["poetry", "run", "worker"]
+
+# =============================
+# Named Volumes
+# =============================
+volumes:
+  redis_data:
+  ollama_data:

@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crewai-ollama
+  namespace: crewai
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: crewai-ollama
+  template:
+    metadata:
+      labels:
+        app: crewai-ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.15.6
+          command: ["ollama", "serve"]
+          ports:
+            - containerPort: 11434
+          resources:
+            requests:
+              memory: "7Gi"
+              cpu: "1"
+            limits:
+              memory: "10Gi"
+              cpu: "4"
