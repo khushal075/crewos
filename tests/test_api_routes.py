@@ -105,13 +105,11 @@ class TestRunCrewSync:
 
     @patch("crewos.api.routes.CrewRunner")
     def test_sync_run_returns_completed(self, mock_runner, client):
-        mock_runner.run.return_value = {
-            "tenant_id": "tenant-123",
-            "agent_type": "research",
-            "input": "hello",
-            "output": "done",
-            "status": "completed",
-        }
+        # CrewRunResponse only has task_id and status.
+        # The route does CrewRunResponse(task_id="sync_run", status="Completed", **result)
+        # so **result must not contain any keys outside that schema, and must
+        # not contain 'status' or 'task_id' either (duplicate keyword error).
+        mock_runner.run.return_value = {}
 
         response = client.post(
             "/domain/run-sync",
