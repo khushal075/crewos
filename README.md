@@ -613,6 +613,30 @@ poetry check --lock
 
 Review logs before sharing them: third-party logs can contain data or connection details even when application payload printing is disabled.
 
+## First tool contract: agent-task status input
+
+`crewos/application/dtos/agent_task_status.py` defines `GetAgentTaskStatusInput`, the input contract for the planned read-only `get_agent_task_status` tool. This first tool concerns CrewOS task execution, not webhook delivery. It is not registered with the model or connected to a lookup yet.
+
+```json
+{"agent_task_id": "agent_task_123"}
+```
+
+`agent_task_id` identifies a task execution, not the configured agent or an individual HTTP request. The sample identifier is synthetic. This model validates a supplied identifier; it does not generate IDs, prove existence, or grant access.
+
+The identifier must be a string. Surrounding whitespace is removed, and an empty or whitespace-only value is rejected. Missing identifiers and undeclared fields are rejected. Tenant identity and permissions must come from trusted application execution context rather than model arguments.
+
+The existing HTTP API still returns a Celery `task_id`; its request/response contract and ownership mechanism have not changed. When task-status lookup is implemented, the application must explicitly define how `agent_task_id` maps to the existing execution identity rather than silently creating a second unrelated ID. The future agent loop must also prevent unbounded polling of its own active execution.
+
+This DTO belongs in the application layer because it describes a CrewOS-native operation. Generic tool dispatch and policy evaluation must remain independent of this particular tool's fields. Separate business-domain examples can be added later without putting their concepts in the runtime.
+
+Run the contract tests with:
+
+```bash
+poetry run pytest tests/test_agent_task_status_contract.py -q
+```
+
+Only input validation exists so far. Output contracts, policy evaluation, tenant-scoped lookup, registration, and model-selected execution are separate subsequent changes. This does not add a webhook service, new input channel, or agent loop.
+
 ## Implemented versus planned
 
 | Area | Current state |
@@ -623,6 +647,7 @@ Review logs before sharing them: third-party logs can contain data or connection
 | Queued execution and explicit worker routing | Implemented |
 | Bounded inference retries and request timeouts | Implemented |
 | Container packaging and schema-checked cluster manifests | Implemented; cluster operation remains environment-dependent |
+| Agent-task status input contract | Implemented; validation only, not executable yet |
 | Dynamic model-chosen tool calls | Planned |
 | Bounded observation/action agent loop | Planned |
 | Durable run state, checkpoints, and resume | Planned |
