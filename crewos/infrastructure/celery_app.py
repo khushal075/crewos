@@ -9,8 +9,6 @@ celery_app = Celery(
 )
 
 
-
-
 celery_app.autodiscover_tasks(["crewos.workers"])
 
 celery_app.conf.update(
@@ -20,10 +18,14 @@ celery_app.conf.update(
     timezone="Asia/Kolkata",
     enable_utc=True,
     task_acks_late=True,
+    task_track_started=True,
+    worker_prefetch_multiplier=1,
+    result_expires=settings.TASK_RESULT_TTL,
+    broker_connection_retry_on_startup=True,
+    broker_transport_options={"visibility_timeout": 3600},
+    task_soft_time_limit=240,
+    task_time_limit=270,
 )
 
 celery_app.conf.task_default_queue = settings.CELERY_QUEUE_NAME
 celery_app.conf.worker_concurrency = settings.CELERY_CONCURRENCY
-
-
-
