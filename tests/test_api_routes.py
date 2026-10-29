@@ -99,6 +99,43 @@ class TestRunCrewAsync:
         assert response.status_code == 422
 
 
+@pytest.mark.parametrize("endpoint", ["/domain/run", "/domain/run-sync"])
+@pytest.mark.parametrize(
+    "input_data",
+    [
+        {},
+        {"message": ""},
+        {"message": " \t\n"},
+        {"message": None},
+        {"message": 123},
+        {"message": []},
+        {"message": {}},
+    ],
+)
+def test_invalid_message_is_rejected_before_execution(client, endpoint, input_data):
+    with (
+        patch("crewos.api.routes.run_crew") as task,
+        patch("crewos.api.routes.CrewRunner") as runner,
+    ):
+        response = client.post(endpoint, json={"input": input_data})
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "input", "message"]
+    task.apply_async.assert_not_called()
+    runner.run.assert_not_called()
+
+
+def test_valid_message_and_extra_input_fields_are_preserved(client):
+    input_data = {"message": "  Inspect delivery failure.  ", "source": "demo"}
+    with patch("crewos.api.routes.run_crew") as task:
+        task.apply_async.return_value.id = "task-valid"
+        response = client.post("/domain/run", json={"input": input_data})
+
+    assert response.status_code == 200
+    queued_payload = task.apply_async.call_args.kwargs["args"][1]
+    assert queued_payload["input"] == input_data
+
+
 # ── POST /domain/run-sync ─────────────────────────────────────────────────────
 
 class TestRunCrewSync:
@@ -125,15 +162,15 @@ class TestRunCrewSync:
 
     @patch("crewos.api.routes.CrewRunner")
     def test_sync_run_value_error_returns_400(self, mock_runner, client):
-        mock_runner.run.side_effect = ValueError("Message is required")
+        mock_runner.run.side_effect = ValueError("Unsupported input")
 
         response = client.post(
             "/domain/run-sync",
-            json={"agent_type": "research", "input": {"message": ""}},
+            json={"agent_type": "research", "input": {"message": "hello"}},
             headers={"X-Tenant-Id": "tenant-123"},
         )
         assert response.status_code == 400
-        assert "Message is required" in response.json()["detail"]
+        assert "Unsupported input" in response.json()["detail"]
 
     @patch("crewos.api.routes.CrewRunner")
     def test_sync_run_unexpected_error_returns_500(self, mock_runner, client):

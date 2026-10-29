@@ -1,10 +1,24 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from typing import Dict, Any, Optional
+from typing import Any, Optional
+
+
+class CrewInput(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    message: str = Field(strict=True)
+
+    @field_validator("message")
+    @classmethod
+    def reject_blank_message(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Message must not be blank")
+        return value
+
 
 class CrewRunRequest(BaseModel):
     agent_type: str = Field(default="research", description="Type of agent to run")
-    input: Dict[str, Any] = Field(..., description="Input payload for the agent")
+    input: CrewInput = Field(..., description="Input payload for the agent")
 
 
 class CrewRunResponse(BaseModel):
