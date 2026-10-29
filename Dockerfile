@@ -1,26 +1,16 @@
 FROM python:3.11-slim
-
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV POETRY_HOME="/opt/poetry"
-ENV PATH="$POETRY_HOME/bin:$PATH"
-
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+    POETRY_VIRTUALENVS_CREATE=true POETRY_VIRTUALENVS_IN_PROJECT=true
+ENV PATH="/app/.venv/bin:$PATH"
 WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    curl \
-    git \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN curl -sSL https://install.python-poetry.org | python3 -
-RUN poetry config virtualenvs.create false
-
+RUN pip install --no-cache-dir poetry==2.2.1
 COPY pyproject.toml poetry.lock ./
-RUN poetry install --no-root --no-interaction --no-ansi
-
-COPY crewos ./app
-
+RUN poetry install --only main --no-root --no-interaction --no-ansi
+COPY crewos ./crewos
+COPY README.md ./
+RUN poetry install --only-root --no-interaction --no-ansi \
+    && useradd --create-home crewos
+USER crewos
 EXPOSE 8000
-
-CMD ["poetry", "run", "dev"]
+HEALTHCHECK CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"
+CMD ["uvicorn", "crewos.main:app", "--host", "0.0.0.0", "--port", "8000"]

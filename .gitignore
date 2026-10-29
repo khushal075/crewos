@@ -1,10 +1,14 @@
-# Python cache
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+.venv*/
 .python-version
-
-# IDE
 .idea/
-
+.DS_Store
+*.env
+.env*
+.coverage*
+coverage.xml
+htmlcov/
+.pytest_cache/
+dist/
+!.env.local.example

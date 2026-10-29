@@ -1,0 +1,11 @@
+.git
+.venv*
+__pycache__
+*.pyc
+*.env
+.env*
+.coverage*
+.pytest_cache
+.idea
+work
+outputs
