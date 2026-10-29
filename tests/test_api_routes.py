@@ -3,6 +3,7 @@ Integration tests for crewos/api/routes.py
 Uses FastAPI TestClient — no real Celery broker or LLM required.
 All external dependencies (CrewRunner, run_crew task, AsyncResult) are mocked.
 """
+
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
@@ -10,20 +11,27 @@ from fastapi.testclient import TestClient
 
 from crewos.api.routes import router
 from crewos.core.tenant import get_tenant_id
+from crewos.infrastructure.task_ownership import get_task_store, TaskOwnershipStore
+from tests.helpers import MemoryRedis
 
 
 # ── App fixture ───────────────────────────────────────────────────────────────
+
 
 def make_app(tenant_id: str = "tenant-123") -> FastAPI:
     """Creates a test FastAPI app with tenant dependency overridden."""
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_tenant_id] = lambda: tenant_id
+    store = TaskOwnershipStore(MemoryRedis())
+    store.register("task-abc", tenant_id)
+    app.dependency_overrides[get_task_store] = lambda: store
     return app
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    monkeypatch.setattr("crewos.api.routes.uuid4", lambda: "task-abc-123")
     return TestClient(make_app())
 
 
@@ -37,6 +45,7 @@ def anon_client():
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
+
 class TestHealth:
 
     def test_health_returns_ok(self, client):
@@ -46,6 +55,7 @@ class TestHealth:
 
 
 # ── POST /domain/run (async enqueue) ─────────────────────────────────────────
+
 
 class TestRunCrewAsync:
 
@@ -138,6 +148,7 @@ def test_valid_message_and_extra_input_fields_are_preserved(client):
 
 # ── POST /domain/run-sync ─────────────────────────────────────────────────────
 
+
 class TestRunCrewSync:
 
     @patch("crewos.api.routes.CrewRunner")
@@ -187,6 +198,7 @@ class TestRunCrewSync:
 
 # ── GET /domain/status/{task_id} ──────────────────────────────────────────────
 
+
 class TestTaskStatus:
 
     @patch("crewos.api.routes.AsyncResult")
@@ -220,7 +232,7 @@ class TestTaskStatus:
         data = response.json()
         assert data["status"] == "FAILURE"
         assert data["result"]["error_type"] == "RuntimeError"
-        assert "task exploded" in data["result"]["error_message"]
+        assert data["result"]["error_message"] == "Task execution failed"
 
     @patch("crewos.api.routes.AsyncResult")
     def test_status_pending(self, mock_async_result, client):
@@ -251,20 +263,12 @@ class TestTaskStatus:
         assert response.status_code == 200
         assert response.json()["status"] == "STARTED"
 
+    @patch("crewos.api.routes.jsonable_encoder", side_effect=ValueError("private data"))
     @patch("crewos.api.routes.AsyncResult")
-    def test_status_serialization_error_falls_back(self, mock_async_result, client):
-        """If result serialization fails, falls back to str(result)."""
-        mock_result = MagicMock()
-        mock_result.state = "SUCCESS"
-        mock_result.result = MagicMock(
-            side_effect=Exception("serialization error")
-        )
-        # Make jsonable_encoder raise by making result unpicklable
-        mock_async_result.return_value = mock_result
-
-        # Should not raise — falls back gracefully
-        response = client.get(
-            "/domain/status/task-abc",
-            headers={"X-Tenant-Id": "tenant-123"},
-        )
-        assert response.status_code == 200
+    def test_status_serialization_error_returns_safe_error(self, mock_result, mock_encoder, client):
+        mock_result.return_value.state = "SUCCESS"
+        mock_result.return_value.result = {"output": "private data"}
+        response = client.get("/domain/status/task-abc")
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Task result unavailable"
+        assert "private data" not in response.text

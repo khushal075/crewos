@@ -3,15 +3,21 @@
 from fastapi import HTTPException, APIRouter, Depends
 from fastapi.encoders import jsonable_encoder
 from celery.result import AsyncResult
+from uuid import uuid4
+from redis.exceptions import RedisError
+from crewos.infrastructure.task_ownership import get_task_store, TaskOwnershipStore
 
 from crewos.core.config import settings
 from crewos.infrastructure.logging import get_logger
 from crewos.infrastructure.celery_app import celery_app
 from crewos.services.crew_runner import CrewRunner
 from crewos.workers.crew_task import run_crew
-from crewos.core.tenant import get_tenant_id
+from crewos.core.tenant import get_tenant_id, tenant_queue
 from crewos.api.schemas import (
-    CrewRunRequest, CrewRunResponse, CrewSyncRunResponse, TaskStatusResponse,
+    CrewRunRequest,
+    CrewRunResponse,
+    CrewSyncRunResponse,
+    TaskStatusResponse,
 )
 
 logger = get_logger(__name__)
@@ -33,6 +39,7 @@ def health():
 def run_crew_api(
     payload: CrewRunRequest,
     tenant_id: str = Depends(get_tenant_id),
+    task_store: TaskOwnershipStore = Depends(get_task_store),
 ):
     """
     Enqueue a Crew task for a tenant.
@@ -40,38 +47,52 @@ def run_crew_api(
     per-tenant workers in Kubernetes pick it up — not the default queue.
 
     Queue format: crewai.<tenant_id>
-    Worker must be started with: -Q crewai.<tenant_id>
+    Start a matching worker with: worker --tenant-id <tenant_id>
     """
-    queue_name = f"{settings.CELERY_QUEUE_NAME}.{tenant_id}"
+    queue_name = tenant_queue(tenant_id)
 
-    logger.info({
-        "event": "crew_task_enqueued",
-        "tenant_id": tenant_id,
-        "agent_type": payload.agent_type,
-        "queue": queue_name
-    })
-    print(f"tenant_id: {tenant_id}")
+    logger.info(
+        {
+            "event": "crew_task_enqueue_requested",
+            "tenant_id": tenant_id,
+            "agent_type": payload.agent_type,
+            "queue": queue_name,
+        }
+    )
     try:
-        task = run_crew.apply_async(
+        task_id = str(uuid4())
+        # Register before dispatch. Ambiguous publish failures retain ownership;
+        # they must not accidentally expose a task that was actually published.
+        task_store.register(task_id, tenant_id)
+        run_crew.apply_async(
             args=[tenant_id, payload.model_dump()],
-            queue=f"{settings.CELERY_QUEUE_NAME}.{tenant_id}"
+            task_id=task_id,
+            queue=queue_name,
+            expires=settings.TASK_QUEUE_TTL,
+            retry=False,
         )
 
-        logger.info({
-            "event": "crew_task_dispatched",
-            "tenant_id": tenant_id,
-            "task_id": task.id,
-            "queue": queue_name
-        })
+        logger.info(
+            {
+                "event": "crew_task_dispatched",
+                "tenant_id": tenant_id,
+                "task_id": task_id,
+                "queue": queue_name,
+            }
+        )
 
-        return CrewRunResponse(task_id=task.id, status="Queued")
+        return CrewRunResponse(task_id=task_id, status="Queued")
 
+    except RedisError:
+        raise HTTPException(503, "Task storage unavailable")
     except Exception as e:
-        logger.error({
-            "event": "crew_task_enqueue_failed",
-            "tenant_id": tenant_id,
-            "error": str(e)
-        }, exc_info=True)
+        logger.error(
+            {
+                "event": "crew_task_enqueue_failed",
+                "tenant_id": tenant_id,
+                "error_type": type(e).__name__,
+            }
+        )
         raise HTTPException(status_code=500, detail="Failed to enqueue task")
 
 
@@ -89,23 +110,23 @@ def run_crew_sync_api(
     without needing Redis or a running worker.
     """
     try:
-        logger.info({
-            "event": "crew_task_sync_started",
-            "tenant_id": tenant_id,
-            "agent_type": payload.agent_type
-        })
-
-        result = CrewRunner.run(
-            tenant_id=tenant_id,
-            payload=payload.model_dump()
+        logger.info(
+            {
+                "event": "crew_task_sync_started",
+                "tenant_id": tenant_id,
+                "agent_type": payload.agent_type,
+            }
         )
 
-        logger.info({
-            "event": "crew_task_sync_completed",
-            "tenant_id": tenant_id,
-            "agent_type": payload.agent_type,
-            "output_summary": str(result.get("output"))[:200]
-        })
+        result = CrewRunner.run(tenant_id=tenant_id, payload=payload.model_dump())
+
+        logger.info(
+            {
+                "event": "crew_task_sync_completed",
+                "tenant_id": tenant_id,
+                "agent_type": payload.agent_type,
+            }
+        )
 
         return CrewSyncRunResponse(
             task_id="sync_run",
@@ -114,19 +135,19 @@ def run_crew_sync_api(
         )
 
     except ValueError as ve:
-        logger.warning({
-            "event": "crew_task_sync_validation_failed",
-            "tenant_id": tenant_id,
-            "error": str(ve)
-        })
+        logger.warning(
+            {"event": "crew_task_sync_validation_failed", "tenant_id": tenant_id, "error": str(ve)}
+        )
         raise HTTPException(status_code=400, detail=str(ve))
 
     except Exception as e:
-        logger.error({
-            "event": "crew_task_sync_failed",
-            "tenant_id": tenant_id,
-            "error": str(e)
-        }, exc_info=True)
+        logger.error(
+            {
+                "event": "crew_task_sync_failed",
+                "tenant_id": tenant_id,
+                "error_type": type(e).__name__,
+            }
+        )
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
@@ -137,26 +158,29 @@ def run_crew_sync_api(
 def get_task_status(
     task_id: str,
     tenant_id: str = Depends(get_tenant_id),
+    task_store: TaskOwnershipStore = Depends(get_task_store),
 ):
     """
     Retrieve the status of a Crew task.
     Returns current state and result/error if completed.
     """
-    task_result = AsyncResult(task_id, app=celery_app)
-    state = task_result.state
+    try:
+        task_store.require_owner(task_id, tenant_id)
+        task_result = AsyncResult(task_id, app=celery_app)
+        state = task_result.state
+    except RedisError:
+        raise HTTPException(503, "Task storage unavailable")
 
-    logger.info({
-        "event": "task_status_requested",
-        "task_id": task_id,
-        "tenant_id": tenant_id,
-        "state": state
-    })
+    logger.info(
+        {
+            "event": "task_status_requested",
+            "task_id": task_id,
+            "tenant_id": tenant_id,
+            "state": state,
+        }
+    )
 
-    response_data = {
-        "task_id": task_id,
-        "status": state,
-        "result": None
-    }
+    response_data = {"task_id": task_id, "status": state, "result": None}
 
     try:
         if state == "SUCCESS":
@@ -166,19 +190,21 @@ def get_task_status(
             error_obj = task_result.result
             response_data["result"] = {
                 "error_type": type(error_obj).__name__,
-                "error_message": str(error_obj)
+                "error_message": "Task execution failed",
             }
 
         elif state in ["PENDING", "STARTED", "RETRY"]:
             response_data["result"] = None
 
     except Exception as e:
-        logger.error({
-            "event": "task_status_serialization_failed",
-            "task_id": task_id,
-            "tenant_id": tenant_id,
-            "error": str(e)
-        }, exc_info=True)
-        response_data["result"] = str(task_result.result)
+        logger.error(
+            {
+                "event": "task_status_serialization_failed",
+                "task_id": task_id,
+                "tenant_id": tenant_id,
+                "error_type": type(e).__name__,
+            }
+        )
+        raise HTTPException(500, "Task result unavailable")
 
     return TaskStatusResponse(**response_data)
