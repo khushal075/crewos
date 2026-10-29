@@ -12,6 +12,10 @@ class CrewRunResponse(BaseModel):
     status: str
 
 
+class CrewSyncRunResponse(CrewRunResponse):
+    output: str
+
+
 class TaskStatusResponse(BaseModel):
     task_id: str
     status: str

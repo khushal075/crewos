@@ -10,7 +10,9 @@ from crewos.infrastructure.celery_app import celery_app
 from crewos.services.crew_runner import CrewRunner
 from crewos.workers.crew_task import run_crew
 from crewos.core.tenant import get_tenant_id
-from crewos.api.schemas import CrewRunRequest, CrewRunResponse, TaskStatusResponse
+from crewos.api.schemas import (
+    CrewRunRequest, CrewRunResponse, CrewSyncRunResponse, TaskStatusResponse,
+)
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -76,7 +78,7 @@ def run_crew_api(
 # =========================
 # Synchronous Crew Run (Testing / Debugging)
 # =========================
-@router.post("/domain/run-sync", response_model=CrewRunResponse)
+@router.post("/domain/run-sync", response_model=CrewSyncRunResponse)
 def run_crew_sync_api(
     payload: CrewRunRequest,
     tenant_id: str = Depends(get_tenant_id),
@@ -105,10 +107,10 @@ def run_crew_sync_api(
             "output_summary": str(result.get("output"))[:200]
         })
 
-        return CrewRunResponse(
+        return CrewSyncRunResponse(
             task_id="sync_run",
             status="Completed",
-            **result
+            output=result["output"],
         )
 
     except ValueError as ve:

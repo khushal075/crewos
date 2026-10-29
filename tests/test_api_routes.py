@@ -105,11 +105,13 @@ class TestRunCrewSync:
 
     @patch("crewos.api.routes.CrewRunner")
     def test_sync_run_returns_completed(self, mock_runner, client):
-        # CrewRunResponse only has task_id and status.
-        # The route does CrewRunResponse(task_id="sync_run", status="Completed", **result)
-        # so **result must not contain any keys outside that schema, and must
-        # not contain 'status' or 'task_id' either (duplicate keyword error).
-        mock_runner.run.return_value = {}
+        mock_runner.run.return_value = {
+            "tenant_id": "tenant-123",
+            "agent_type": "research",
+            "input": "hello",
+            "output": "Destination returned HTTP 503.",
+            "status": "completed",
+        }
 
         response = client.post(
             "/domain/run-sync",
@@ -119,6 +121,7 @@ class TestRunCrewSync:
         assert response.status_code == 200
         assert response.json()["status"] == "Completed"
         assert response.json()["task_id"] == "sync_run"
+        assert response.json()["output"] == "Destination returned HTTP 503."
 
     @patch("crewos.api.routes.CrewRunner")
     def test_sync_run_value_error_returns_400(self, mock_runner, client):

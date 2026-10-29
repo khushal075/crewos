@@ -23,8 +23,12 @@ class Agent:
 
         if self.llm:
             task_description = self.payload.get("task_description", "")
-            # ✅ wrap in inner list for batch
-            batch_messages = [[HumanMessage(content=task_description)]]
+            context = self.payload.get("context", "")
+            message = task_description
+            if context:
+                message += f"\n\nPrevious task output:\n{context}"
+
+            batch_messages = [[HumanMessage(content=message)]]
 
             result = self.llm.generate(batch_messages)
             response = result.generations[0][0].text

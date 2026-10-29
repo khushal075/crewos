@@ -149,6 +149,28 @@ class TestCrew:
         # task2's context payload should contain that LLM output
         assert agent2.payload.get("context") == "task1 llm output"
 
+    def test_second_model_request_contains_previous_task_output(self):
+        evidence = "Destination returned HTTP 503."
+        research_llm = make_mock_llm(evidence)
+        summary_llm = make_mock_llm("Delivery failed.")
+        researcher = Agent(role="Researcher", goal="Find evidence", llm=research_llm)
+        writer = Agent(role="Writer", goal="Summarize evidence", llm=summary_llm)
+        research = Task(
+            name="Research", description="Inspect delivery failure.",
+            agent=researcher, expected_output="Evidence",
+        )
+        summary = Task(
+            name="Summary", description="Summarize the evidence.",
+            agent=writer, expected_output="Summary", context=[research],
+        )
+
+        Crew(agents=[researcher, writer], tasks=[research, summary]).kickoff()
+
+        summary_llm.generate.assert_called_once()
+        messages = summary_llm.generate.call_args.args[0][0]
+        assert any(evidence in message.content for message in messages)
+        assert any(summary.description in message.content for message in messages)
+
     def test_crew_kickoff_stores_result_on_task(self):
         llm = make_mock_llm("stored result")
         agent = Agent(role="R", goal="G", llm=llm)
