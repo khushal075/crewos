@@ -1,73 +1,37 @@
 services:
-  # ===============================
-  # Redis (Broker + Backend)
-  # ===============================
   redis:
-    image: redis:7
-    container_name: crewai_redis
-    ports:
-      - "6379:6379"
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-
-  # =============================
-  # Ollama (LLM Server)
-  # =============================
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redis_data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
   ollama:
     image: ollama/ollama:0.15.6
-    container_name: crewai_ollama
-    ports:
-      - "11434:11434"
-    restart: unless-stopped
-    command: ["serve"]
-    volumes:
-      - ollama_data:/root/.ollama
-    deploy:
-      resources:
-        limits:
-          memory: 8g
-
-  # =============================
-  # FastAPI Backend
-  # =============================
+    profiles: ["local-model"]
+    volumes: ["ollama_data:/root/.ollama"]
   backend:
     build: .
-    container_name: crewai_backend
-    env_file:
-      - k8crew.env
-    ports:
-      - "8000:8000"
+    env_file: [".env.local"]
+    environment:
+      REDIS_BROKER_URL: redis://redis:6379/0
+      REDIS_RESULT_BACKEND: redis://redis:6379/1
+    ports: ["127.0.0.1:8000:8000"]
     depends_on:
-      - redis
-      - ollama
-    volumes:
-      - ./crewos:/crewos/crewos
-    command: ["poetry", "run", "dev"]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
-  # =============================
-  # Worker (CrewAI tasks)
-  # =============================
+      redis: {condition: service_healthy}
   worker:
     build: .
-    container_name: crewai_worker
-    env_file:
-      - k8crew.env
+    env_file: [".env.local"]
+    environment:
+      REDIS_BROKER_URL: redis://redis:6379/0
+      REDIS_RESULT_BACKEND: redis://redis:6379/1
+    command: ["worker"]
+    healthcheck: {disable: true}
+    stop_grace_period: 300s
     depends_on:
-      - redis
-      - ollama
-    volumes:
-      - ./crewos:/crewos/crewos
-    command: ["poetry", "run", "worker"]
-
-# =============================
-# Named Volumes
-# =============================
+      redis: {condition: service_healthy}
 volumes:
   redis_data:
   ollama_data:

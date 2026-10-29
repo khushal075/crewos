@@ -14,14 +14,26 @@ spec:
         app: crewai-api
     spec:
       containers:
-        - name: api
-          image: crewai-crewos:latest
-          imagePullPolicy: IfNotPresent
-          ports:
-            - containerPort: 8000
-          envFrom:
-            - configMapRef:
-                name: crewai-config
-            - secretRef:
-                name: crewai-secret
-          command: ["poetry", "run", "dev"]
+      - name: api
+        image: crewai-crewos:local
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: crewai-config
+        - secretRef:
+            name: crewai-secret
+        command:
+        - uvicorn
+        - crewos.main:app
+        - --host
+        - 0.0.0.0
+        - --port
+        - '8000'
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 3
+          periodSeconds: 5

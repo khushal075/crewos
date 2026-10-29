@@ -1,10 +1,8 @@
 apiVersion: apps/v1
 kind: Deployment
-
 metadata:
   name: crewai-redis
   namespace: crewai
-
 spec:
   replicas: 1
   selector:
@@ -16,7 +14,19 @@ spec:
         app: crewai-redis
     spec:
       containers:
-        - name: redis
-          image: redis:7
-          ports:
-            - containerPort: 6379
+      - name: redis
+        image: redis:7
+        ports:
+        - containerPort: 6379
+        args:
+        - --appendonly
+        - 'yes'
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: crewai-redis-data
+  strategy:
+    type: Recreate

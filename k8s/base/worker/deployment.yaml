@@ -1,32 +1,35 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: crewai-worker
+  name: crewai-worker-1
   namespace: crewai
 spec:
   replicas: 1
   selector:
-    matchLabels:
+    matchLabels: &id001
       app: crewai-worker
+      tenant: '1'
   template:
     metadata:
-      labels:
-        app: crewai-worker
+      labels: *id001
     spec:
-      terminationGracePeriodSeconds: 120
+      terminationGracePeriodSeconds: 300
       containers:
-        - name: worker
-          image: crewai-crewos:latest
-          imagePullPolicy: IfNotPresent
-          envFrom:
-            - configMapRef:
-                name: crewai-config
-            - secretRef:
-                name: crewai-secret
-          command: ["poetry", "run", "worker"]
-
-          # Tell k8s to send SIGTERM before killing
-          lifecycle:
-            preStop:
-              exec:
-                command: ["/bin/sh", "-c", "sleep 5"]
+      - name: worker
+        image: crewai-crewos:local
+        imagePullPolicy: IfNotPresent
+        command:
+        - worker
+        env:
+        - name: TENANT_ID
+          value: '1'
+        envFrom:
+        - configMapRef:
+            name: crewai-config
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: '1'
+            memory: 1Gi
