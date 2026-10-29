@@ -11,11 +11,11 @@ logger = get_logger(__name__)
 class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
-        request_id = getattr(request.state, 'request_id', None)
         tenant_id = request.headers.get('X-Tenant-ID', None)
 
         # Process Request
         response: Response = await call_next(request)
+        request_id = getattr(request.state, 'request_id', None)
         process_time = round(time.time() - start_time, 4)
         logger.info({
             "event": "http_request",

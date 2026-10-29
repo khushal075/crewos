@@ -44,3 +44,17 @@ def test_logs_tenant_header_instead_of_request_header(client):
     logger.info.assert_called_once()
     event = logger.info.call_args.args[0]
     assert event["tenant_id"] == "tenant-demo"
+
+
+def test_logged_request_id_matches_response_header():
+    from crewos.main import app
+
+    with patch("crewos.api.middleware.logging.logger") as logger:
+        response = TestClient(app).get("/health")
+
+    assert response.status_code == 200
+    response_id = response.headers["X-Request-ID"]
+    assert response_id
+    logger.info.assert_called_once()
+    event = logger.info.call_args.args[0]
+    assert event["request_id"] == response_id
