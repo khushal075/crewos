@@ -674,7 +674,7 @@ These are application-level values. `crewos/infrastructure/task_state.py` implem
 
 `queued` is retained for an application state supported by reliable queue/run records; the Celery mapper will not manufacture it from `PENDING`. An expired result may appear pending even while its accessible ownership record remains. The eventual lookup must check ownership before reading state, return `unavailable` for missing or inaccessible ownership, and surface storage failures as execution errors rather than inventing task states. No transitions, backend reads, or state mapping occur inside this enum. The mapper uses exact backend-state values; custom or unsupported states become `unknown`, and the string `queued` is not assumed to be a Celery state. Backend errors are not inputs to this function and must be propagated by the eventual lookup adapter.
 
-For the first lookup, `agent_task_id` will refer directly to the existing API/Celery `task_id`; a second identifier is not generated. This establishes the intended identity mapping without changing current HTTP fields or adding a lookup implementation.
+For the first lookup, `agent_task_id` will refer directly to the existing API/Celery `task_id`; a second identifier is not generated. This establishes the intended identity mapping without changing current HTTP fields. The reader and application handler below implement the lookup.
 
 Two Pydantic response models now enforce different shapes:
 
@@ -829,7 +829,7 @@ A denial raises `PolicyDeniedError`, retaining its structured decision for appli
 
 The generic `ResultT` annotation expresses that `execute` returns whatever the supplied operation returns. It does not validate a tool's arguments or output; those remain separate contract checks. The callback and required action must be selected by application code rather than accepted as arbitrary model-provided executable code.
 
-This is a callable execution gate, not a registered tool dispatcher yet. No existing endpoint or Celery worker invokes it. Tests exercise the boundary with the real permission policy and controlled operations, including proving that denied or failed evaluation never invokes the operation. Resource ownership checks must still occur inside the protected operation, using trusted tenant scope. Worker propagation, tool registration, the actual task lookup, and model tool selection are subsequent work.
+This is a callable execution gate, not a registered tool dispatcher yet. No existing endpoint or Celery worker invokes it. Tests exercise the boundary with the real permission policy and controlled operations, including proving that denied or failed evaluation never invokes the operation. The task-status handler below now composes this gate with a reader that checks resource ownership using trusted tenant scope. Worker propagation, endpoint wiring, tool registration, and model tool selection remain subsequent work.
 
 ## Tenant-scoped task-status reader
 
@@ -855,7 +855,47 @@ The existing ownership store signals missing/inaccessible records with HTTP 404.
 
 The result factory is injectable for tests, while its default constructs Celery `AsyncResult` using the existing application. Unit tests use controlled records/backends; they are not evidence of a new live-model or live-Redis run.
 
-This adapter enforces tenant ownership, not action permission. It must be called by an application handler through the policy-enforced executor, with a validated input and authenticated context. That composition is not implemented yet. No existing HTTP endpoint or worker calls this new reader, and no model can invoke it yet.
+This adapter enforces tenant ownership, not action permission. It must be called by an application handler through the policy-enforced executor, with a validated input and authenticated context. That composition is implemented in the application handler described below. No existing HTTP endpoint or worker calls this new reader, and no model can invoke it yet.
+
+## Task-status application handler
+
+`GetAgentTaskStatusHandler` in `crewos/application/use_cases/get_agent_task_status.py` composes the policy-enforced executor with a tenant-scoped reader. It accepts a validated `GetAgentTaskStatusInput` and a `ToolExecutionContext` supplied by trusted application code. The permission action is fixed by the handler as `agent_task.read`; model arguments cannot choose the action or tenant.
+
+```text
+Validated arguments + Trusted context
+                 |
+     Enforce agent_task.read permission
+                 |
+     Reader checks task ownership
+                 |
+       Read and map backend state
+                 |
+          Typed lookup result
+```
+
+`TaskStatusReaderInterface` is an application-owned boundary implemented by `CeleryTaskStatusReader`. The handler therefore depends on the reader contract rather than importing Redis or Celery infrastructure. A denied or failed policy evaluation never calls the reader. An allowed action still requires ownership of the specific task. Reader failures propagate as execution errors.
+
+Tests compose the real policy, executor, reader, and ownership store with an in-memory Redis substitute and controlled backend state. They cover permitted access, cross-tenant rejection, permission denial, policy failure, and reader failure. No new live-service validation is claimed. The handler is not yet wired to an HTTP endpoint, worker, tool registry, or model loop; the existing HTTP status route retains its current behavior.
+
+## Explicit tool registry
+
+`crewos/application/services/tool_registry.py` provides a dictionary-backed `ToolRegistry`. Trusted application code registers a frozen `ToolDefinition` containing a name, description, Pydantic argument schema, and handler callable (for example, a bound `handler.execute` method). Registration is explicit and local to each registry instance. Duplicate names are rejected rather than silently replacing a handler; empty names and surrounding whitespace are rejected. Lookup uses exact names and raises `UnknownToolError` for an unknown tool.
+
+The registry stores and selects definitions only. Retrieving a definition does not invoke its handler, validate arguments, grant permission, or verify context provenance. Argument validation and dispatch will be added separately; authorization remains in the application handler. These are trusted Python configuration objects, not validated model input. No dynamic imports, automatic plugin discovery, live registration endpoint, or tenant-specific tool catalog is implemented.
+
+A future composition point can register the task-status handler like this (illustrative wiring, not yet part of an endpoint or worker):
+
+```python
+registry = ToolRegistry()
+registry.register(ToolDefinition(
+    name="get_agent_task_status",
+    description="Read the observed status of a task owned by the current tenant.",
+    argument_schema=GetAgentTaskStatusInput,
+    handler=task_status_handler.execute,
+))
+```
+
+This step implements registration and lookup, not model-selected execution. Tests establish exact lookup, duplicate rejection, invalid-name rejection, instance isolation, and that registration/lookup never executes the handler.
 
 ## Implemented versus planned
 
@@ -869,11 +909,13 @@ This adapter enforces tenant ownership, not action permission. It must be called
 | Container packaging and schema-checked cluster manifests | Implemented; cluster operation remains environment-dependent |
 | Agent-task status input, outcome/state enums, and two response models | Implemented; validation only, not executable yet |
 | Tool execution context | Built from verified tenant identity and server-configured grants at execution API entrypoints; not yet propagated to tools/workers |
-| Policy decision contract | Model implemented; evaluation and enforcement not wired yet |
-| Policy-service interface and exact-match strategy | Implemented; policy invocation and execution gate not wired yet |
+| Policy decision contract | Used by the task-status handler through the policy executor; not wired to endpoints |
+| Policy-service interface and exact-match strategy | Composed with the task-status handler; not wired to endpoints |
 | Policy-enforced executor | Implemented and tested; not connected to API/worker/tool dispatch yet |
-| Celery state translation | Pure mapper implemented; not connected to the new tool lookup yet |
-| Tenant-scoped task-status reader | Adapter implemented and tested; not connected to policy gate or tool dispatch yet |
+| Celery state translation | Used by the tenant-scoped reader |
+| Tenant-scoped task-status reader | Connected to the policy gate through the application handler; no tool dispatch yet |
+| Task-status application handler | Permission gate and tenant-scoped reader composed and tested; not wired to endpoints or tool dispatch |
+| Explicit tool registry | Definition registration and exact-name lookup implemented; validation/dispatch and runtime wiring pending |
 | Dynamic model-chosen tool calls | Planned |
 | Bounded observation/action agent loop | Planned |
 | Durable run state, checkpoints, and resume | Planned |
