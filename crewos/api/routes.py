@@ -12,7 +12,8 @@ from crewos.infrastructure.logging import get_logger
 from crewos.infrastructure.celery_app import celery_app
 from crewos.services.crew_runner import CrewRunner
 from crewos.workers.crew_task import run_crew
-from crewos.core.tenant import get_tenant_id, tenant_queue
+from crewos.core.tenant import get_tenant_id, get_tool_execution_context, tenant_queue
+from crewos.application.dtos.tool_execution_context import ToolExecutionContext
 from crewos.api.schemas import (
     CrewRunRequest,
     CrewRunResponse,
@@ -38,7 +39,7 @@ def health():
 @router.post("/domain/run", response_model=CrewRunResponse)
 def run_crew_api(
     payload: CrewRunRequest,
-    tenant_id: str = Depends(get_tenant_id),
+    context: ToolExecutionContext = Depends(get_tool_execution_context),
     task_store: TaskOwnershipStore = Depends(get_task_store),
 ):
     """
@@ -49,6 +50,7 @@ def run_crew_api(
     Queue format: crewai.<tenant_id>
     Start a matching worker with: worker --tenant-id <tenant_id>
     """
+    tenant_id = context.tenant_id
     queue_name = tenant_queue(tenant_id)
 
     logger.info(
@@ -102,13 +104,14 @@ def run_crew_api(
 @router.post("/domain/run-sync", response_model=CrewSyncRunResponse)
 def run_crew_sync_api(
     payload: CrewRunRequest,
-    tenant_id: str = Depends(get_tenant_id),
+    context: ToolExecutionContext = Depends(get_tool_execution_context),
 ):
     """
     Runs a Crew synchronously (blocking call).
     Bypasses Celery entirely — useful for local testing and debugging
     without needing Redis or a running worker.
     """
+    tenant_id = context.tenant_id
     try:
         logger.info(
             {

@@ -6,6 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from hmac import compare_digest
 import re
 from crewos.core.config import settings
+from crewos.application.dtos.tool_execution_context import ToolExecutionContext
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -41,6 +42,16 @@ def get_tenant_id(
     except ValueError:
         raise HTTPException(403, "Tenant access denied")
     return x_tenant_id
+
+
+def get_tool_execution_context(
+    tenant_id: str = Depends(get_tenant_id),
+) -> ToolExecutionContext:
+    """Build context only after tenant authentication, using server-owned grants."""
+    return ToolExecutionContext(
+        tenant_id=tenant_id,
+        permissions=settings.TENANT_PERMISSIONS.get(tenant_id, frozenset()),
+    )
 
 
 def set_tenant(tenant_id: str) -> None:

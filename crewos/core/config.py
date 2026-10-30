@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from pydantic import ConfigDict, Field, SecretStr
+from crewos.application.dtos.tool_execution_context import Permission
 
 
 class Settings(BaseSettings):
@@ -18,6 +19,7 @@ class Settings(BaseSettings):
 
     # Tenant-scoped API tokens. No configured token means access is denied.
     TENANT_API_KEYS: dict[str, SecretStr] = Field(default_factory=dict)
+    TENANT_PERMISSIONS: dict[str, frozenset[Permission]] = Field(default_factory=dict)
     TASK_OWNER_TTL: int = Field(default=86400, ge=10800)
     TASK_RESULT_TTL: int = Field(default=3600, ge=60, le=3600)
     TASK_QUEUE_TTL: int = Field(default=3600, ge=60, le=3600)
