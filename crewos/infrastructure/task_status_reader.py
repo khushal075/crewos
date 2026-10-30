@@ -11,12 +11,13 @@ from crewos.application.dtos.agent_task_status import (
     GetAgentTaskStatusResult,
     TaskLookupOutcome,
 )
+from crewos.application.interfaces.task_status_reader import TaskStatusReaderInterface
 from crewos.infrastructure.celery_app import celery_app
 from crewos.infrastructure.task_ownership import TaskOwnershipStore
 from crewos.infrastructure.task_state import map_celery_state
 
 
-class CeleryTaskStatusReader:
+class CeleryTaskStatusReader(TaskStatusReaderInterface):
     def __init__(
         self,
         ownership_store: TaskOwnershipStore,
