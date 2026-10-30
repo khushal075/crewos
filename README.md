@@ -330,6 +330,7 @@ Priority, highest first: **process environment -> `.env.local` -> legacy `k8crew
 | `REDIS_BROKER_URL` | Empty | Redis URL for Celery task delivery; configure before running workers |
 | `REDIS_RESULT_BACKEND` | Empty | Redis URL for task results and ownership storage |
 | `TENANT_API_KEYS` | `{}` | JSON object mapping a tenant ID to its bearer token; empty configuration authorizes nobody |
+| `TENANT_PERMISSIONS` | `{}` | JSON object mapping authenticated tenants to lists of tool-action permissions; absent assignments yield an empty permission set |
 | `TENANT_ID` | `1` | Default tenant consumed by a worker; overridden by `--tenant-id` |
 | `CELERY_QUEUE_NAME` | `crewai` | Queue prefix; effective queue is `<prefix>.<tenant>` |
 | `CELERY_CONCURRENCY` | `10` | Worker execution slots; the example configuration and Kubernetes ConfigMap use `2` |
@@ -635,7 +636,182 @@ Run the contract tests with:
 poetry run pytest tests/test_agent_task_status_contract.py -q
 ```
 
-Only input validation exists so far. Output contracts, policy evaluation, tenant-scoped lookup, registration, and model-selected execution are separate subsequent changes. This does not add a webhook service, new input channel, or agent loop.
+Input validation and the `TaskLookupOutcome` enum exist so far. The enum describes the lookup result, not the task execution state:
+
+| Outcome | Meaning |
+|---|---|
+| `found` | An accessible task record was found |
+| `unavailable` | No accessible task record was found |
+
+The string values are suitable for JSON and are validated with Pydantic in the contract tests. A task state such as `running` is not a valid lookup outcome. A storage outage must later be represented as an execution error, not silently converted to `unavailable`. The enum itself performs no lookup or authorization.
+
+`AgentTaskStatus` separately defines the task's execution state:
+
+| Task status | Meaning |
+|---|---|
+| `queued` | Accepted and waiting to execute |
+| `running` | Execution has started |
+| `succeeded` | Execution completed successfully |
+| `failed` | Execution ended unsuccessfully |
+
+A lookup can have outcome `found` while the task status is `failed`: the record was retrieved, and it describes an unsuccessful execution. Lookup outcomes are not accepted as task states, and task states are not accepted as lookup outcomes.
+
+These are application-level vocabulary only. The enums do not execute transitions or map Celery states. In particular, Celery `PENDING` must not automatically mean `queued`, because an unknown or expired result can also appear pending. Retry and revocation semantics must be decided explicitly before connecting the lookup to the existing backend; they are not silently added or converted by this enum.
+
+Two Pydantic response models now enforce different shapes:
+
+| Model | Required fields | Restrictions |
+|---|---|---|
+| `AgentTaskFound` | `outcome`, `agent_task_id`, `status` | Outcome must be `found`; status must be an `AgentTaskStatus` |
+| `AgentTaskUnavailable` | `outcome`, `agent_task_id` | Outcome must be `unavailable`; status is not allowed, even as null |
+
+Both reject undeclared fields and require a nonblank string identifier. `Literal` constrains each model to its specific outcome value; enums restrict the allowed lookup outcomes and task states. These contracts validate structure, not existence, permissions, or factual correctness.
+
+```json
+{"outcome": "found", "agent_task_id": "agent_task_123", "status": "failed"}
+```
+
+```json
+{"outcome": "unavailable", "agent_task_id": "agent_task_123"}
+```
+
+`GetAgentTaskStatusResult` is a discriminated union: one type accepting either response model, with `outcome` selecting which model to validate. `found` selects `AgentTaskFound`; `unavailable` selects `AgentTaskUnavailable`. A missing or unsupported outcome is rejected, and each selected model still enforces its required and forbidden fields.
+
+```python
+from pydantic import TypeAdapter
+from crewos.application.dtos.agent_task_status import GetAgentTaskStatusResult
+
+result = TypeAdapter(GetAgentTaskStatusResult).validate_python({
+    "outcome": "found",
+    "agent_task_id": "agent_task_123",
+    "status": "failed",
+})
+```
+
+This selects a validation model for supplied data. It does not decide whether the task actually exists or is accessible; the eventual authorized lookup handler must determine the true outcome. Policy evaluation, tenant-scoped lookup, registration, and model-selected execution are subsequent changes. No handler returns these models yet, and the existing HTTP API is unchanged. This does not add a webhook service, new input channel, or agent loop.
+
+## Tool execution context
+
+`crewos/application/dtos/tool_execution_context.py` defines `ToolExecutionContext`, separate from model-generated tool arguments:
+
+```python
+from crewos.application.dtos.tool_execution_context import ToolExecutionContext
+
+context = ToolExecutionContext(
+    tenant_id="tenant_a",
+    permissions=frozenset({"agent_task.read"}),
+)
+```
+
+The example shows an application-assigned permission, not an automatic grant. `get_tool_execution_context` now depends on the existing authenticated `get_tenant_id` dependency and reads grants from server-owned `settings.TENANT_PERMISSIONS`. Both execution endpoints (`/domain/run` and `/domain/run-sync`) use this builder; task polling retains its existing authentication and ownership checks.
+
+```text
+Tenant header and bearer token
+             |
+Verify token for selected tenant
+             |
+Read server-configured TENANT_PERMISSIONS for that tenant
+             |
+Construct frozen ToolExecutionContext
+```
+
+For example, explicitly assigning a read grant in private configuration looks like:
+
+```dotenv
+TENANT_PERMISSIONS={"tenant_a":["agent_task.read"]}
+```
+
+A tenant without a mapping receives no permissions. Restart API processes after changing configuration. Invalid blank or non-string configured permission names are rejected by settings validation. The model and request body cannot choose these grants; additional input fields named `tenant_id` or `permissions` are not used as execution context.
+
+The endpoints currently use the context's authenticated tenant for their existing behavior. They do not yet enforce these new tool permissions or serialize/carry the context into the Celery worker. No tool dispatcher exists yet; execution-time context propagation and authorization remain necessary before tool use is enabled.
+
+Tenant identity is required and follows the existing queue-compatible identifier format. Permissions default to an empty immutable `frozenset`, so no tool permissions are granted merely by creating a context. Duplicate permission strings collapse into one value; blank or non-string names are rejected. Permission names are not yet an action registry or policy rules.
+
+The model is frozen to prevent ordinary field reassignment, and its permission set cannot be modified in place. This reduces accidental mutation, not malicious access from arbitrary Python code. Pydantic validates structure; it does not authenticate whoever constructed the object. Policy evaluation and resource-scoped enforcement are still necessary.
+
+No API accepts this object, no tool uses it yet, and no authenticated request is being granted a new capability by this change.
+
+## Policy decision contract
+
+`crewos/application/dtos/policy_decision.py` defines `PolicyEffect` (`allow` or `deny`) and an immutable `PolicyDecision`:
+
+```json
+{"effect": "deny", "reason_code": "permission_missing", "policy_version": "1"}
+```
+
+All three fields are required. The effect must be an allowed enum value. The reason code is a lowercase machine-readable identifier beginning with a letter and containing letters, digits, or underscores. The policy version is a nonblank string identifying the rules used. Reason codes remain extensible rather than requiring every future module to modify a central reason enum.
+
+This model validates decision structure only. It does not authenticate identity, establish that a claimed policy version exists, check consistency between a reason and effect, or enforce access. A policy evaluator must produce truthful decisions; an execution boundary must block disallowed operations. Freezing the model prevents ordinary reassignment but does not make an arbitrary caller-created decision authoritative.
+
+No policy evaluator or execution gate is wired yet. Missing fields produce validation errors rather than an implicit allow. Fail-closed enforcement when evaluation fails will be implemented at the execution boundary.
+
+## Policy-service interface
+
+`crewos/application/interfaces/policy_service.py` defines `PolicyServiceInterface`, an abstract application boundary:
+
+```python
+def evaluate(
+    self,
+    *,
+    context: ToolExecutionContext,
+    action: str,
+) -> PolicyDecision:
+    ...
+```
+
+The `*` requires named arguments, making calls such as `evaluate(context=context, action="agent_task.read")` explicit. Concrete implementations must implement `evaluate`; the abstract interface cannot itself be instantiated as a working evaluator. This follows the existing provider-interface approach without adding a network service.
+
+Application code must select the action and establish the context's authenticated identity and server-assigned permissions. The interface neither verifies their provenance nor creates them. Its initial scope is action-level permission evaluation; an allow decision does not waive tenant-scoped resource access, current-condition checks, or approval requirements.
+
+The interface now has one concrete in-process strategy, described below. The trusted-context builder is connected at the API execution boundary, but propagation to the worker and a dispatcher enforcement gate are not wired yet; those responsibilities must be connected before enabling tool execution.
+
+## First policy strategy: exact permission matching
+
+`crewos/application/services/permission_policy.py` implements `PermissionPolicyService` behind `PolicyServiceInterface`. It is an in-process Strategy implementation, not a separately deployed service.
+
+```python
+from crewos.application.dtos.tool_execution_context import ToolExecutionContext
+from crewos.application.services.permission_policy import PermissionPolicyService
+
+context = ToolExecutionContext(
+    tenant_id="tenant_a",
+    permissions=frozenset({"agent_task.read"}),
+)
+decision = PermissionPolicyService().evaluate(
+    context=context,
+    action="agent_task.read",
+)
+```
+
+An exact permission match returns `allow` / `permission_granted`; an absent permission returns `deny` / `permission_missing`. Decisions include policy version `1`. Empty permissions deny the action. There are no implicit role hierarchies, prefix matches, case folding, or wildcard grants: the string `*` does not grant arbitrary actions.
+
+The service is not specific to agent tasks: it compares the application-selected action with the context's permissions. It does not maintain an action registry or decide which actions a tool requires. Those must be assigned by application code, not by model-generated arguments.
+
+This rule checks action-level permission only. It does not fetch resource ownership, prove the context came from authentication, check approval, or execute/block a tool. A successful `agent_task.read` decision alone cannot authorize another tenant's task. The handler must still perform tenant-scoped access and the dispatcher must enforce the decision.
+
+The execution endpoints now build authenticated context using configured tenant permissions, without changing their request or response fields. The policy strategy is not yet invoked by those endpoints. Dependency injection into a dispatcher, worker context propagation, and execution enforcement remain subsequent work.
+
+## Policy-enforced execution boundary
+
+`crewos/application/services/policy_executor.py` defines `PolicyEnforcedExecutor`. It receives a `PolicyServiceInterface` implementation through its constructor (dependency injection) and evaluates an application-selected action before invoking a supplied zero-argument callable.
+
+```text
+Trusted context + Application-selected action
+                    |
+              Evaluate policy
+                    |
+        +-----------+------------+
+        |                        |
+       Allow                Deny / Failure
+        |                        |
+Invoke operation          Do not invoke operation
+```
+
+A denial raises `PolicyDeniedError`, retaining its structured decision for application handling. An exception during policy evaluation or a non-`PolicyDecision` result raises `PolicyEvaluationError`. Both prevent the operation from running. Operation failures after authorization propagate as operation errors; they are not disguised as policy failures.
+
+The generic `ResultT` annotation expresses that `execute` returns whatever the supplied operation returns. It does not validate a tool's arguments or output; those remain separate contract checks. The callback and required action must be selected by application code rather than accepted as arbitrary model-provided executable code.
+
+This is a callable execution gate, not a registered tool dispatcher yet. No existing endpoint or Celery worker invokes it. Tests exercise the boundary with the real permission policy and controlled operations, including proving that denied or failed evaluation never invokes the operation. Resource ownership checks must still occur inside the protected operation, using trusted tenant scope. Worker propagation, tool registration, the actual task lookup, and model tool selection are subsequent work.
 
 ## Implemented versus planned
 
@@ -647,7 +823,11 @@ Only input validation exists so far. Output contracts, policy evaluation, tenant
 | Queued execution and explicit worker routing | Implemented |
 | Bounded inference retries and request timeouts | Implemented |
 | Container packaging and schema-checked cluster manifests | Implemented; cluster operation remains environment-dependent |
-| Agent-task status input contract | Implemented; validation only, not executable yet |
+| Agent-task status input, outcome/state enums, and two response models | Implemented; validation only, not executable yet |
+| Tool execution context | Built from verified tenant identity and server-configured grants at execution API entrypoints; not yet propagated to tools/workers |
+| Policy decision contract | Model implemented; evaluation and enforcement not wired yet |
+| Policy-service interface and exact-match strategy | Implemented; policy invocation and execution gate not wired yet |
+| Policy-enforced executor | Implemented and tested; not connected to API/worker/tool dispatch yet |
 | Dynamic model-chosen tool calls | Planned |
 | Bounded observation/action agent loop | Planned |
 | Durable run state, checkpoints, and resume | Planned |
