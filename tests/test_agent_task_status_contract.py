@@ -52,13 +52,13 @@ def test_lookup_outcome_round_trips_as_a_json_string(value):
     assert adapter.dump_json(outcome).decode() == '"' + value + '"'
 
 
-@pytest.mark.parametrize("value", ["running", "failed", "", None, 123, {}])
+@pytest.mark.parametrize("value", ["running", "failed", "pending", "retrying", "revoked", "unknown", "", None, 123, {}])
 def test_lookup_outcome_rejects_task_states_and_invalid_values(value):
     with pytest.raises(ValidationError):
         TypeAdapter(TaskLookupOutcome).validate_python(value)
 
 
-@pytest.mark.parametrize("value", ["queued", "running", "succeeded", "failed"])
+@pytest.mark.parametrize("value", ["queued", "pending", "running", "retrying", "succeeded", "failed", "revoked", "unknown"])
 def test_task_status_round_trips_as_a_json_string(value):
     adapter = TypeAdapter(AgentTaskStatus)
     status = adapter.validate_json('"' + value + '"')
@@ -72,7 +72,7 @@ def test_task_status_rejects_lookup_outcomes_and_unsupported_values(value):
         TypeAdapter(AgentTaskStatus).validate_python(value)
 
 
-@pytest.mark.parametrize("status", ["queued", "running", "succeeded", "failed"])
+@pytest.mark.parametrize("status", ["queued", "pending", "running", "retrying", "succeeded", "failed", "revoked", "unknown"])
 def test_found_response_returns_task_state_as_json_strings(status):
     payload = {"outcome": "found", "agent_task_id": "agent_task_123", "status": status}
     response = AgentTaskFound.model_validate(payload)

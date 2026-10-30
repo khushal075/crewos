@@ -649,14 +649,32 @@ The string values are suitable for JSON and are validated with Pydantic in the c
 
 | Task status | Meaning |
 |---|---|
-| `queued` | Accepted and waiting to execute |
-| `running` | Execution has started |
-| `succeeded` | Execution completed successfully |
-| `failed` | Execution ended unsuccessfully |
+| `queued` | Application has reliable evidence of acceptance and waiting work; not inferred from Celery `PENDING` |
+| `pending` | Backend currently provides no execution state; this does not prove the task is queued |
+| `running` | Worker reported execution started |
+| `retrying` | Task is awaiting another attempt |
+| `succeeded` | Workflow returned successfully; factual answer quality is not established by this state |
+| `failed` | Execution ended with an error |
+| `revoked` | Backend marked the task revoked, potentially because it expired; this does not prove remote work was undone |
+| `unknown` | Backend state is unsupported by the mapping; not a substitute for a connection error |
 
 A lookup can have outcome `found` while the task status is `failed`: the record was retrieved, and it describes an unsuccessful execution. Lookup outcomes are not accepted as task states, and task states are not accepted as lookup outcomes.
 
-These are application-level vocabulary only. The enums do not execute transitions or map Celery states. In particular, Celery `PENDING` must not automatically mean `queued`, because an unknown or expired result can also appear pending. Retry and revocation semantics must be decided explicitly before connecting the lookup to the existing backend; they are not silently added or converted by this enum.
+These are application-level values. `crewos/infrastructure/task_state.py` implements the pure `map_celery_state` function, keeping Celery-specific translation outside the DTO. It maps a supplied state without accessing Redis, running a task, or checking permissions:
+
+| Celery state | Tool status |
+|---|---|
+| `PENDING` | `pending` |
+| `STARTED` | `running` |
+| `RETRY` | `retrying` |
+| `SUCCESS` | `succeeded` |
+| `FAILURE` | `failed` |
+| `REVOKED` | `revoked` |
+| Unrecognized state | `unknown` |
+
+`queued` is retained for an application state supported by reliable queue/run records; the Celery mapper will not manufacture it from `PENDING`. An expired result may appear pending even while its accessible ownership record remains. The eventual lookup must check ownership before reading state, return `unavailable` for missing or inaccessible ownership, and surface storage failures as execution errors rather than inventing task states. No transitions, backend reads, or state mapping occur inside this enum. The mapper uses exact backend-state values; custom or unsupported states become `unknown`, and the string `queued` is not assumed to be a Celery state. Backend errors are not inputs to this function and must be propagated by the eventual lookup adapter.
+
+For the first lookup, `agent_task_id` will refer directly to the existing API/Celery `task_id`; a second identifier is not generated. This establishes the intended identity mapping without changing current HTTP fields or adding a lookup implementation.
 
 Two Pydantic response models now enforce different shapes:
 
@@ -813,6 +831,32 @@ The generic `ResultT` annotation expresses that `execute` returns whatever the s
 
 This is a callable execution gate, not a registered tool dispatcher yet. No existing endpoint or Celery worker invokes it. Tests exercise the boundary with the real permission policy and controlled operations, including proving that denied or failed evaluation never invokes the operation. Resource ownership checks must still occur inside the protected operation, using trusted tenant scope. Worker propagation, tool registration, the actual task lookup, and model tool selection are subsequent work.
 
+## Tenant-scoped task-status reader
+
+`crewos/infrastructure/task_status_reader.py` defines `CeleryTaskStatusReader`. It reuses the existing ownership store, Celery application, state mapper, and response models:
+
+```text
+Task identifier + Trusted tenant identifier
+                    |
+           Check task ownership
+                    |
+        +-----------+-----------+
+        |                       |
+Missing / Other tenant        Owned
+        |                       |
+Return unavailable       Read Celery state
+                                |
+                       Map and return found
+```
+
+The reader uses `agent_task_id` directly as the existing Celery `task_id`; it does not generate another identifier. It returns only the requested identifier, lookup outcome, and observed state, not generated model output, prompts, or raw task exceptions. `found` means an accessible ownership registration exists and backend state was read; it does not establish that Celery retains a completed result. An owned task with an expired backend result may therefore be `found` with status `pending`.
+
+The existing ownership store signals missing/inaccessible records with HTTP 404. The adapter translates only that condition into `AgentTaskUnavailable`. Storage failures and unexpected ownership errors propagate rather than being disguised as a missing record or a task state. Backend status access happens only after ownership succeeds.
+
+The result factory is injectable for tests, while its default constructs Celery `AsyncResult` using the existing application. Unit tests use controlled records/backends; they are not evidence of a new live-model or live-Redis run.
+
+This adapter enforces tenant ownership, not action permission. It must be called by an application handler through the policy-enforced executor, with a validated input and authenticated context. That composition is not implemented yet. No existing HTTP endpoint or worker calls this new reader, and no model can invoke it yet.
+
 ## Implemented versus planned
 
 | Area | Current state |
@@ -828,6 +872,8 @@ This is a callable execution gate, not a registered tool dispatcher yet. No exis
 | Policy decision contract | Model implemented; evaluation and enforcement not wired yet |
 | Policy-service interface and exact-match strategy | Implemented; policy invocation and execution gate not wired yet |
 | Policy-enforced executor | Implemented and tested; not connected to API/worker/tool dispatch yet |
+| Celery state translation | Pure mapper implemented; not connected to the new tool lookup yet |
+| Tenant-scoped task-status reader | Adapter implemented and tested; not connected to policy gate or tool dispatch yet |
 | Dynamic model-chosen tool calls | Planned |
 | Bounded observation/action agent loop | Planned |
 | Durable run state, checkpoints, and resume | Planned |

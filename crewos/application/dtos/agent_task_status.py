@@ -22,12 +22,16 @@ class TaskLookupOutcome(StrEnum):
 
 
 class AgentTaskStatus(StrEnum):
-    """Application task state; Celery state mapping is not implemented yet."""
+    """Application task state; backend translation lives in infrastructure."""
 
     QUEUED = "queued"
+    PENDING = "pending"
     RUNNING = "running"
+    RETRYING = "retrying"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    REVOKED = "revoked"
+    UNKNOWN = "unknown"
 
 
 class AgentTaskFound(BaseModel):
