@@ -706,7 +706,7 @@ result = TypeAdapter(GetAgentTaskStatusResult).validate_python({
 })
 ```
 
-This selects a validation model for supplied data. It does not decide whether the task actually exists or is accessible; the eventual authorized lookup handler must determine the true outcome. Policy evaluation, tenant-scoped lookup, registration, and model-selected execution are subsequent changes. No handler returns these models yet, and the existing HTTP API is unchanged. This does not add a webhook service, new input channel, or agent loop.
+This selects a validation model for supplied data. It does not decide whether the task actually exists or is accessible; the eventual authorized lookup handler must determine the true outcome. Policy evaluation, tenant-scoped lookup, and registration are implemented below; model-selected execution remains pending. The task-status handler below returns these models; the existing HTTP API is unchanged. This does not add a webhook service, new input channel, or agent loop.
 
 ## Tool execution context
 
@@ -741,7 +741,7 @@ TENANT_PERMISSIONS={"tenant_a":["agent_task.read"]}
 
 A tenant without a mapping receives no permissions. Restart API processes after changing configuration. Invalid blank or non-string configured permission names are rejected by settings validation. The model and request body cannot choose these grants; additional input fields named `tenant_id` or `permissions` are not used as execution context.
 
-The endpoints currently use the context's authenticated tenant for their existing behavior. They do not yet enforce these new tool permissions or serialize/carry the context into the Celery worker. No tool dispatcher exists yet; execution-time context propagation and authorization remain necessary before tool use is enabled.
+The endpoints currently use the context's authenticated tenant for their existing behavior. They do not yet enforce these new tool permissions or serialize/carry the context into the Celery worker. A tool dispatcher and protected handler now exist, but execution-time context propagation and endpoint/worker integration remain necessary before tool use is enabled.
 
 Tenant identity is required and follows the existing queue-compatible identifier format. Permissions default to an empty immutable `frozenset`, so no tool permissions are granted merely by creating a context. Duplicate permission strings collapse into one value; blank or non-string names are rejected. Permission names are not yet an action registry or policy rules.
 
@@ -805,7 +805,7 @@ An exact permission match returns `allow` / `permission_granted`; an absent perm
 
 The service is not specific to agent tasks: it compares the application-selected action with the context's permissions. It does not maintain an action registry or decide which actions a tool requires. Those must be assigned by application code, not by model-generated arguments.
 
-This rule checks action-level permission only. It does not fetch resource ownership, prove the context came from authentication, check approval, or execute/block a tool. A successful `agent_task.read` decision alone cannot authorize another tenant's task. The handler must still perform tenant-scoped access and the dispatcher must enforce the decision.
+This rule checks action-level permission only. It does not fetch resource ownership, prove the context came from authentication, check approval, or execute/block a tool. A successful `agent_task.read` decision alone cannot authorize another tenant's task. The handler must still enforce the decision through the policy gate and perform tenant-scoped access through its reader.
 
 The execution endpoints now build authenticated context using configured tenant permissions, without changing their request or response fields. The policy strategy is not yet invoked by those endpoints. Dependency injection into a dispatcher, worker context propagation, and execution enforcement remain subsequent work.
 
@@ -881,7 +881,7 @@ Tests compose the real policy, executor, reader, and ownership store with an in-
 
 `crewos/application/services/tool_registry.py` provides a dictionary-backed `ToolRegistry`. Trusted application code registers a frozen `ToolDefinition` containing a name, description, Pydantic argument schema, and handler callable (for example, a bound `handler.execute` method). Registration is explicit and local to each registry instance. Duplicate names are rejected rather than silently replacing a handler; empty names and surrounding whitespace are rejected. Lookup uses exact names and raises `UnknownToolError` for an unknown tool.
 
-The registry stores and selects definitions only. Retrieving a definition does not invoke its handler, validate arguments, grant permission, or verify context provenance. Argument validation and dispatch will be added separately; authorization remains in the application handler. These are trusted Python configuration objects, not validated model input. No dynamic imports, automatic plugin discovery, live registration endpoint, or tenant-specific tool catalog is implemented.
+The registry stores and selects definitions only. Retrieving a definition does not invoke its handler, validate arguments, grant permission, or verify context provenance. Argument validation and dispatch are provided by the dispatcher below; authorization remains in the application handler. These are trusted Python configuration objects, not validated model input. No dynamic imports, automatic plugin discovery, live registration endpoint, or tenant-specific tool catalog is implemented.
 
 A future composition point can register the task-status handler like this (illustrative wiring, not yet part of an endpoint or worker):
 
@@ -895,7 +895,38 @@ registry.register(ToolDefinition(
 ))
 ```
 
-This step implements registration and lookup, not model-selected execution. Tests establish exact lookup, duplicate rejection, invalid-name rejection, instance isolation, and that registration/lookup never executes the handler.
+The registry implements registration and lookup, not model-selected execution. Tests establish exact lookup, duplicate rejection, invalid-name rejection, instance isolation, and that registration/lookup never executes the handler.
+
+## Tool dispatcher
+
+`ToolDispatcher` in `crewos/application/services/tool_dispatcher.py` receives a tool name, decoded argument dictionary, and separately supplied trusted execution context. It looks up the registered definition, validates arguments with that definition's Pydantic schema, then calls the handler with the validated arguments and context. Tool arguments do not supply execution identity. For the task-status schema, unexpected fields such as `tenant_id` or `permissions` are rejected before handler invocation.
+
+```text
+Tool name + arguments + Trusted context
+                  |
+        Registry selects definition
+                  |
+        Validate argument dictionary
+                  |
+              Call handler
+                  |
+       Permission gate -> Ownership check -> Read/map state
+```
+
+Unknown tool names and invalid arguments prevent handler invocation. Policy, ownership, and backend failure behavior remains the handler/reader's responsibility; the dispatcher propagates errors rather than disguising them as success. Authorization is not added automatically to arbitrary registered callables: trusted registration code must select handlers that enforce the required policy. The return annotation describes the expected handler result; the dispatcher does not independently validate response schemas.
+
+Tests exercise dispatch through the real task-status handler, policy, reader, and ownership store using controlled storage/backend substitutes. They prove permission denial, cross-tenant isolation, argument validation, and separately supplied context. The setup factory below now provides explicit registration. Calling it at application startup, HTTP/worker integration, model tool-call parsing, error-to-model formatting, and the agent loop remain pending. No endpoint or model currently invokes this dispatcher.
+
+## Tool setup factory
+
+`build_tool_dispatcher(reader=...)` in `crewos/core/tool_setup.py` constructs the permission policy, enforcement gate, task-status handler, fresh registry, and dispatcher. It explicitly creates a `ToolDefinition` for `get_agent_task_status` and binds its handler to `GetAgentTaskStatusHandler.execute`. Only this tool is registered. The caller supplies a reader implementing `TaskStatusReaderInterface`, keeping storage selection explicit.
+
+```text
+Setup: reader -> policy + gate + handler -> registered definition -> dispatcher
+Calls: dispatcher -> validation -> handler -> policy gate -> tenant-scoped reader
+```
+
+Construction does not read task state, create a Celery task, authenticate a caller, or grant permissions. Trusted context must still be supplied separately on each dispatch. The factory is callable application setup code, not automatic startup wiring; no existing endpoint, worker, or model loop calls it yet. Tests use the factory with the real Celery reader and ownership store over controlled backend/storage substitutes, checking permitted access, denied access, cross-tenant rejection, and unknown tools. These tests do not claim live Redis or model integration.
 
 ## Implemented versus planned
 
@@ -915,7 +946,9 @@ This step implements registration and lookup, not model-selected execution. Test
 | Celery state translation | Used by the tenant-scoped reader |
 | Tenant-scoped task-status reader | Connected to the policy gate through the application handler; no tool dispatch yet |
 | Task-status application handler | Permission gate and tenant-scoped reader composed and tested; not wired to endpoints or tool dispatch |
-| Explicit tool registry | Definition registration and exact-name lookup implemented; validation/dispatch and runtime wiring pending |
+| Explicit tool registry | Definition registration and exact-name lookup implemented; dispatcher uses lookup; runtime wiring pending |
+| Tool dispatcher | Lookup, argument validation, and handler invocation implemented and tested; not wired to endpoints or model loop |
+| Tool setup factory | Explicitly registers the protected task-status tool and returns a dispatcher; startup invocation pending |
 | Dynamic model-chosen tool calls | Planned |
 | Bounded observation/action agent loop | Planned |
 | Durable run state, checkpoints, and resume | Planned |
