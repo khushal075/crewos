@@ -1,6 +1,8 @@
 """Read an owned task's observed state without returning model output."""
 
 from collections.abc import Callable
+from dataclasses import asdict
+import logging
 
 from celery.result import AsyncResult
 from fastapi import HTTPException
@@ -12,9 +14,14 @@ from crewos.application.dtos.agent_task_status import (
     TaskLookupOutcome,
 )
 from crewos.application.interfaces.task_status_reader import TaskStatusReaderInterface
+from crewos.application.services.tool_log_context import get_tool_log_context
+from crewos.infrastructure.logging import get_logger
 from crewos.infrastructure.celery_app import celery_app
 from crewos.infrastructure.task_ownership import TaskOwnershipStore
 from crewos.infrastructure.task_state import map_celery_state
+
+
+logger = get_logger("crewos.task_status")
 
 
 class CeleryTaskStatusReader(TaskStatusReaderInterface):
@@ -22,8 +29,10 @@ class CeleryTaskStatusReader(TaskStatusReaderInterface):
         self,
         ownership_store: TaskOwnershipStore,
         result_factory: Callable[[str], AsyncResult] | None = None,
+        event_logger: logging.Logger | None = None,
     ):
         self._ownership_store = ownership_store
+        self._logger = event_logger if event_logger is not None else logger
         self._result_factory = (
             result_factory
             if result_factory is not None
@@ -32,19 +41,59 @@ class CeleryTaskStatusReader(TaskStatusReaderInterface):
 
     def read(self, *, agent_task_id: str, tenant_id: str) -> GetAgentTaskStatusResult:
         """Tenant must come from trusted context; action permission is external."""
+        correlation = get_tool_log_context()
+        fields = {
+            "tenant_id": tenant_id,
+            **(asdict(correlation) if correlation is not None else {}),
+        }
+        phase = "ownership"
         try:
-            self._ownership_store.require_owner(agent_task_id, tenant_id)
-        except HTTPException as error:
-            if error.status_code != 404:
-                raise
-            return AgentTaskUnavailable(
-                outcome=TaskLookupOutcome.UNAVAILABLE,
-                agent_task_id=agent_task_id,
-            )
+            try:
+                self._ownership_store.require_owner(agent_task_id, tenant_id)
+            except HTTPException as error:
+                if error.status_code != 404:
+                    raise
+                self._logger.info(
+                    {
+                        "event": "task_ownership_checked",
+                        **fields,
+                        "outcome": "unavailable",
+                    }
+                )
+                return AgentTaskUnavailable(
+                    outcome=TaskLookupOutcome.UNAVAILABLE,
+                    agent_task_id=agent_task_id,
+                )
 
-        result = self._result_factory(agent_task_id)
-        return AgentTaskFound(
-            outcome=TaskLookupOutcome.FOUND,
-            agent_task_id=agent_task_id,
-            status=map_celery_state(result.state),
-        )
+            self._logger.info(
+                {
+                    "event": "task_ownership_checked",
+                    **fields,
+                    "outcome": "accessible",
+                }
+            )
+            phase = "backend"
+            result = self._result_factory(agent_task_id)
+            response = AgentTaskFound(
+                outcome=TaskLookupOutcome.FOUND,
+                agent_task_id=agent_task_id,
+                status=map_celery_state(result.state),
+            )
+            self._logger.info(
+                {
+                    "event": "task_status_read_completed",
+                    **fields,
+                    "status": response.status.value,
+                }
+            )
+            return response
+        except Exception as error:
+            self._logger.error(
+                {
+                    "event": "task_status_read_failed",
+                    **fields,
+                    "phase": phase,
+                    "error_type": type(error).__name__,
+                }
+            )
+            raise
