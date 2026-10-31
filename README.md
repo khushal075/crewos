@@ -875,7 +875,7 @@ Validated arguments + Trusted context
 
 `TaskStatusReaderInterface` is an application-owned boundary implemented by `CeleryTaskStatusReader`. The handler therefore depends on the reader contract rather than importing Redis or Celery infrastructure. A denied or failed policy evaluation never calls the reader. An allowed action still requires ownership of the specific task. Reader failures propagate as execution errors.
 
-Tests compose the real policy, executor, reader, and ownership store with an in-memory Redis substitute and controlled backend state. They cover permitted access, cross-tenant rejection, permission denial, policy failure, and reader failure. No new live-service validation is claimed. The handler is not yet wired to an HTTP endpoint, worker, tool registry, or model loop; the existing HTTP status route retains its current behavior.
+Tests compose the real policy, executor, reader, and ownership store with an in-memory Redis substitute and controlled backend state. They cover permitted access, cross-tenant rejection, permission denial, policy failure, and reader failure. No new live-service validation is claimed. The setup factory below registers this handler for internal dispatch. No HTTP endpoint, worker, or model loop invokes it yet; the existing HTTP status route retains its current behavior.
 
 ## Explicit tool registry
 
@@ -928,6 +928,73 @@ Calls: dispatcher -> validation -> handler -> policy gate -> tenant-scoped reade
 
 Construction does not read task state, create a Celery task, authenticate a caller, or grant permissions. Trusted context must still be supplied separately on each dispatch. The factory is callable application setup code, not automatic startup wiring; no existing endpoint, worker, or model loop calls it yet. Tests use the factory with the real Celery reader and ownership store over controlled backend/storage substitutes, checking permitted access, denied access, cross-tenant rejection, and unknown tools. These tests do not claim live Redis or model integration.
 
+The task-status tool is an internal operation exercised by the bounded loop in tests; it does not require a dedicated HTTP endpoint. The existing `/domain/status/{task_id}` API continues to return Celery state and completed output under its existing authentication and ownership checks. It has not been migrated to the new tool permission gate.
+
+## Model decision contracts
+
+`crewos/application/dtos/model_decision.py` defines the provider-independent `ModelDecision` discriminated union. Pydantic selects exactly one shape using the required `type` field:
+
+```json
+{"type":"tool_call","name":"get_agent_task_status","arguments":{"agent_task_id":"task-123"}}
+```
+
+```json
+{"type":"final_answer","answer":"The task is still running."}
+```
+
+`ToolCallDecision` requires a nonblank string name and an argument dictionary containing JSON-shaped values. `FinalAnswerDecision` requires a nonblank string answer. Text fields trim surrounding whitespace and reject non-string inputs. Both reject undeclared top-level fields; a decision cannot mix final-answer and tool-call fields or supply top-level tenant/permission claims. The `arguments` dictionary remains tool-specific data: the dispatcher must validate it against the registered schema, which rejects forged authority fields for the task-status tool.
+
+Validate the union with `TypeAdapter(ModelDecision).validate_python(payload)` or `.validate_json(text)`. Successful parsing establishes structure only: the tool may be unregistered, arguments may fail the selected tool schema, authorization may deny execution, and a final answer may be incorrect. These are model proposals, not permission grants or verified facts. One decision represents one proposed tool call or final answer; provider batches and call identifiers require explicit adapter handling later.
+
+This is an internal application contract, not a requirement that each provider return this exact wire format. Provider adapters will translate their responses into it. The bounded loop below consumes these contracts with scripted decisions in tests; no real model adapter or existing workflow produces them yet. Refusals, malformed outputs, execution budgets, and tool-result observations still need explicit runtime handling.
+
+## Decision-provider interface
+
+`DecisionProviderInterface` in `crewos/application/interfaces/decision_provider.py` defines `decide(messages=..., tools=...) -> ModelDecision`: request exactly one tool-call or final-answer proposal. This new boundary is for the agent runtime; the existing `LLMProviderInterface.get()` and fixed workflow are unchanged. The bounded loop below uses this interface; a text-JSON adapter is implemented below alongside the test-scripted implementation; live-provider validation is pending.
+
+Inputs in `decision_request.py` separate conversation data from executable tool registrations:
+
+- `DecisionMessage` carries a role (`system`, `user`, `assistant`, or `tool`) and nonempty text. Content formatting is preserved. These fields describe conversation structure; a role label does not prove provenance, and retrieved/tool text must not acquire system authority. Trusted runtime code must construct the message sequence.
+- `ToolSchema` carries a name, description, and JSON-shaped `parameters` dictionary. Parameters can come from a registered Pydantic argument model's `model_json_schema()`. It contains no handler or execution context. JSON-shaped validation does not establish that an arbitrary parameters dictionary is a valid or provider-supported JSON Schema.
+
+The adapter will translate these inputs to provider formats and validate its returned `ModelDecision`. Type annotations and the abstract interface do not themselves validate a concrete adapter's return. The application retains ownership of trusted context, dispatch, authorization, and loop budgets. Publishing a tool schema grants no execution permission. Refusal, transport failure, and malformed responses must remain distinguishable from a successful final answer; concrete error types and runtime handling remain pending.
+
+Messages currently provide text-level conversation data only. Native provider tool-call identifiers, batched calls, multimodal messages, streaming, and usage metadata are not represented by this first contract and require explicit adaptation or later contract extension. It is not a complete cross-provider chat protocol. Tests cover input shapes and separation of model metadata from executable handlers; they do not demonstrate model inference.
+
+## First bounded agent loop (scripted-provider verification)
+
+`AgentLoop` in `crewos/application/use_cases/agent_loop.py` requests one decision at a time through `DecisionProviderInterface`. It validates each returned decision, returns a final-answer proposal immediately, or dispatches a tool call using separately supplied trusted context. After a successful tool call it appends an assistant decision message and a tool observation containing the tool name and JSON result, then requests the next decision. Conversation history is local to the invocation; the caller's message list is not appended to.
+
+```text
+Messages + tool schemas -> Provider -> Validate decision
+                                           |
+                        +------------------+----------------+
+                        |                                   |
+                   Final answer                         Tool call
+                        |                                   |
+                      Return                     Protected dispatcher
+                                                            |
+                                                     Tool observation
+                                                            |
+                                                 Next decision (budgeted)
+```
+
+`max_decisions` is a positive integer (default 5). Each provider call consumes one decision, including a final answer. At most that many tool calls can execute; if the last permitted decision calls a tool, it executes and then the loop raises `DecisionLimitExceeded` without another provider call. This limit does not undo work, bound the duration of an individual call, or provide a token/cost/deadline budget. Timeouts, cancellation, action budgets, and human approvals remain pending; the current registered tool is read-only.
+
+Unknown tools, invalid arguments/decisions, denied permissions, provider failures, and execution errors stop the invocation by propagating the error. They are not converted into fabricated answers. Missing/other-tenant tasks instead produce the reader's normal `unavailable` observation. Tool observations remain untrusted data, not system instructions; this role distinction alone is not a complete prompt-injection defense. Final-answer validation does not verify factual correctness.
+
+Tests implement `ScriptedProvider` only in the test suite. They verify decision -> protected tool -> observation -> final answer, immediate completion, repeated calls hitting the limit, tenant/permission boundaries, and malformed or failed execution paths. They use controlled storage/backend substitutes and establish orchestration behavior, not a real model's ability to select tools. No concrete model adapter, API endpoint, or Celery worker invokes this loop yet. Tool schemas are caller-supplied metadata; trusted setup must keep them consistent with registrations, and permissions remain enforced at execution time. The text observation format is internal; native provider call IDs and wire formats still require adaptation.
+
+## Text-JSON model decision adapter
+
+`JsonDecisionAdapter` in `crewos/third_party/llm/json_decision_adapter.py` implements `DecisionProviderInterface` using an injected LangChain `BaseChatModel`. It makes one `invoke` call with a system instruction containing the decision JSON Schema and model-visible tool metadata, plus a human message containing serialized internal conversation history. Tool observations stay labeled as data within that history, not promoted into system instructions. This packaging is a simple text protocol, not a guarantee against prompt injection.
+
+The adapter expects one plain JSON object in text content, validated against `ModelDecision`. It rejects malformed JSON, Markdown-wrapped output, content blocks, and native tool-call responses with `DecisionResponseError`. Explicit `additional_kwargs.refusal` metadata produces `DecisionRefusedError`; this is not universal refusal detection across providers. Transport/model errors propagate without adapter-added retries. The injected client's own timeout and retry configuration still applies. No prompt/response logging or model credentials are added here.
+
+This first adapter uses prompted JSON, not provider-enforced structured output or native function calling. Schema instructions do not guarantee valid responses, permitted actions, correct tool choice, or factual answers. Registry, argument, policy, and ownership checks still apply after parsing. Native provider tool IDs, batches, multimodal output, token accounting, capability negotiation, and error recovery remain separate work.
+
+Controlled-response tests verify formatting, parsing, refusal/error behavior, and separation of observations from system instructions. They do not show a real model choosing tools or establish provider compatibility. A caller can inject an existing configured chat model; no existing endpoint, worker, or fixed workflow automatically uses this adapter. A live-model run and full adapter-to-loop assembly remain pending.
+
 ## Implemented versus planned
 
 | Area | Current state |
@@ -942,15 +1009,18 @@ Construction does not read task state, create a Celery task, authenticate a call
 | Tool execution context | Built from verified tenant identity and server-configured grants at execution API entrypoints; not yet propagated to tools/workers |
 | Policy decision contract | Used by the task-status handler through the policy executor; not wired to endpoints |
 | Policy-service interface and exact-match strategy | Composed with the task-status handler; not wired to endpoints |
-| Policy-enforced executor | Implemented and tested; not connected to API/worker/tool dispatch yet |
+| Policy-enforced executor | Connected to the registered task-status handler; endpoint and worker integration pending |
 | Celery state translation | Used by the tenant-scoped reader |
-| Tenant-scoped task-status reader | Connected to the policy gate through the application handler; no tool dispatch yet |
-| Task-status application handler | Permission gate and tenant-scoped reader composed and tested; not wired to endpoints or tool dispatch |
+| Tenant-scoped task-status reader | Connected through the protected handler and internal dispatcher; no endpoint or agent-loop invocation yet |
+| Task-status application handler | Registered by the setup factory and exercised through internal dispatch; endpoint and agent-loop invocation pending |
 | Explicit tool registry | Definition registration and exact-name lookup implemented; dispatcher uses lookup; runtime wiring pending |
 | Tool dispatcher | Lookup, argument validation, and handler invocation implemented and tested; not wired to endpoints or model loop |
 | Tool setup factory | Explicitly registers the protected task-status tool and returns a dispatcher; startup invocation pending |
+| Model decision contracts | Tool-call/final-answer union implemented and tested; provider and runtime integration pending |
+| Decision-provider interface | One-decision boundary and input DTOs implemented; concrete adapter and runtime integration pending |
+| Text-JSON decision adapter | Implemented with controlled-response tests; live-model and entrypoint integration pending |
 | Dynamic model-chosen tool calls | Planned |
-| Bounded observation/action agent loop | Planned |
+| Bounded observation/action agent loop | Sequential loop implemented and tested with scripted decisions; real-provider and entrypoint integration pending |
 | Durable run state, checkpoints, and resume | Planned |
 | Scoped persistent memory | Planned; memory file is a placeholder |
 | MCP discovery and tool integration | Planned |
