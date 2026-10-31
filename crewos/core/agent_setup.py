@@ -5,7 +5,11 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from crewos.application.interfaces.task_status_reader import TaskStatusReaderInterface
 from crewos.application.use_cases.agent_loop import AgentLoop
 from crewos.core.tool_setup import build_tool_dispatcher
+from crewos.infrastructure.logging import get_logger
 from crewos.third_party.llm.json_decision_adapter import JsonDecisionAdapter
+
+
+logger = get_logger("crewos.agent")
 
 
 def build_agent_loop(
@@ -23,4 +27,5 @@ def build_agent_loop(
         provider=JsonDecisionAdapter(model),
         dispatcher=build_tool_dispatcher(reader=reader),
         max_decisions=max_decisions,
+        logger=logger,
     )

@@ -7,6 +7,9 @@ from crewos.application.services.policy_executor import PolicyEnforcedExecutor
 from crewos.application.services.tool_dispatcher import ToolDispatcher
 from crewos.application.services.tool_registry import ToolDefinition, ToolRegistry
 from crewos.application.use_cases.get_agent_task_status import GetAgentTaskStatusHandler
+from crewos.infrastructure.logging import get_logger
+
+logger = get_logger("crewos.policy")
 
 
 def build_tool_dispatcher(*, reader: TaskStatusReaderInterface) -> ToolDispatcher:
@@ -15,7 +18,7 @@ def build_tool_dispatcher(*, reader: TaskStatusReaderInterface) -> ToolDispatche
     Construction performs no task lookup and grants no permissions. This factory
     is not automatically invoked by an endpoint or worker.
     """
-    executor = PolicyEnforcedExecutor(PermissionPolicyService())
+    executor = PolicyEnforcedExecutor(PermissionPolicyService(), logger=logger)
     handler = GetAgentTaskStatusHandler(executor=executor, reader=reader)
     registry = ToolRegistry()
     registry.register(
