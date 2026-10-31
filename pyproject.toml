@@ -29,6 +29,7 @@ python-dotenv = "^1.0.1"
 tenacity = "^8.2.3"
 structlog = "^24.1.0"
 ipdb = "^0.13.13"
+prometheus-client = ">=0.21,<1.0"
 
 [tool.poetry.group.dev.dependencies]
 pyyaml = "^6.0"

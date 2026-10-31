@@ -12,6 +12,7 @@ from crewos.application.dtos.decision_request import DecisionMessage
 from crewos.application.dtos.model_decision import FinalAnswerDecision, ModelDecision
 from crewos.application.dtos.tool_execution_context import ToolExecutionContext
 from crewos.application.interfaces.decision_provider import DecisionProviderInterface
+from crewos.application.interfaces.agent_metrics import AgentMetricsInterface, Operation, Outcome
 from crewos.application.services.tool_dispatcher import ToolDispatcher
 from crewos.application.services.tool_log_context import ToolLogContext, tool_log_context
 
@@ -28,12 +29,14 @@ class AgentLoop:
         dispatcher: ToolDispatcher,
         max_decisions: int = 5,
         logger: logging.Logger | None = None,
+        metrics: AgentMetricsInterface | None = None,
     ):
         if type(max_decisions) is not int or max_decisions < 1:
             raise ValueError("max_decisions must be a positive integer")
         self._provider = provider
         self._dispatcher = dispatcher
         self._max_decisions = max_decisions
+        self._metrics = metrics
         self._decision_adapter = TypeAdapter(ModelDecision)
         self._logger = logger if logger is not None else logging.getLogger(__name__)
 
@@ -69,6 +72,23 @@ class AgentLoop:
                 },
             )
 
+        def measure(operation: Operation, outcome: Outcome, since: float):
+            if self._metrics is None:
+                return
+            try:
+                self._metrics.observe(
+                    operation=operation,
+                    outcome=outcome,
+                    duration_seconds=max(0.0, perf_counter() - since),
+                )
+            except Exception as error:
+                emit(
+                    "agent_metrics_recording_failed",
+                    level=logging.WARNING,
+                    operation=operation,
+                    error_type=type(error).__name__,
+                )
+
         emit("agent_run_started", max_decisions=self._max_decisions)
         try:
             history = list(messages)
@@ -82,6 +102,7 @@ class AgentLoop:
                 decision = self._decision_adapter.validate_python(
                     self._provider.decide(messages=tuple(history), tools=tool_schemas)
                 )
+                measure("model", "success", phase_started)
                 emit(
                     "agent_model_call_completed",
                     step=step,
@@ -89,6 +110,7 @@ class AgentLoop:
                     decision_type=decision.type,
                 )
                 if isinstance(decision, FinalAnswerDecision):
+                    measure("run", "success", started)
                     emit(
                         "agent_run_completed",
                         decisions=step,
@@ -121,6 +143,7 @@ class AgentLoop:
                         context=context,
                     )
                 tools_completed += 1
+                measure("tool", "success", phase_started)
                 emit(
                     "agent_tool_call_completed",
                     step=step,
@@ -148,6 +171,13 @@ class AgentLoop:
             phase = "decision_limit"
             raise DecisionLimitExceeded("Decision limit reached before a final answer")
         except Exception as error:
+            if phase in {"model", "tool"}:
+                measure(phase, "error", phase_started)
+            measure(
+                "run",
+                "decision_limit" if isinstance(error, DecisionLimitExceeded) else "error",
+                started,
+            )
             emit(
                 "agent_run_failed",
                 level=(

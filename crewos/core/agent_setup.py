@@ -6,6 +6,7 @@ from crewos.application.interfaces.task_status_reader import TaskStatusReaderInt
 from crewos.application.use_cases.agent_loop import AgentLoop
 from crewos.core.tool_setup import build_tool_dispatcher
 from crewos.infrastructure.logging import get_logger
+from crewos.infrastructure.agent_metrics import agent_metrics
 from crewos.third_party.llm.json_decision_adapter import JsonDecisionAdapter
 
 
@@ -28,4 +29,5 @@ def build_agent_loop(
         dispatcher=build_tool_dispatcher(reader=reader),
         max_decisions=max_decisions,
         logger=logger,
+        metrics=agent_metrics,
     )

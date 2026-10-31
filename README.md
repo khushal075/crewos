@@ -1094,6 +1094,25 @@ When called inside an agent tool scope, these events carry the same agent run ID
 
 Tests verify same-shape unavailable logs, ownership-before-backend ordering, mapped status, correlated IDs, sensitive-field exclusion, and propagated failure phases. These are local structured events, not exported metrics, distributed tracing, or persisted audit evidence.
 
+## Initial process-local agent metrics
+
+`AgentMetricsInterface` keeps application measurements independent of a backend. `PrometheusAgentMetrics` in `crewos/infrastructure/agent_metrics.py` uses `prometheus-client` counters and histograms in a dedicated `CollectorRegistry`. `build_agent_loop` injects a process-local shared collector; direct loop construction may omit metrics. Constructing multiple loops through setup does not repeatedly register the same metric names. Separate collector instances have isolated registries for tests.
+
+| Metric | Meaning |
+|---|---|
+| `crewos_agent_operations_total` | Number of completed/failed operations |
+| `crewos_agent_operation_duration_seconds` | Duration histogram with count/sum/buckets |
+
+Both use only `operation` (`run`, `model`, `tool`) and `outcome` (`success`, `error`, or run-only `decision_limit`). No tenant ID, run ID, task ID, arbitrary exception name, raw model/tool text, or credentials are labels. Histogram buckets range from 0.01 to 300 seconds plus infinity; counts/sums are observations, while percentiles require aggregation/querying of bucket series. The adapter rejects unsupported label values and non-finite/negative durations before recording.
+
+A model success means a structurally valid decision, a tool success means protected dispatch returned (possibly `unavailable`), and a run success means a final-answer proposal returned. None establishes answer correctness or business task success. Failed model/tool calls contribute error measurements and the overall failed run is counted separately. Exhaustion counts a `run/decision_limit` outcome, not an additional failed tool call. Timing uses the monotonic clock and includes local validation/dispatch work, not provider-internal timing.
+
+Metrics recording failures emit a generic lifecycle warning and do not replace the operation's result or original error. Ordinary logging failure handling remains that of the configured Python logger. Measurements cover normal returns and ordinary exceptions, not abrupt process death or every cancellation path.
+
+`agent_metrics.render()` returns the current process's Prometheus exposition bytes. This step does not start a metrics HTTP server, add `/metrics`, persist snapshots, aggregate workers, or install Prometheus/Grafana. CLI processes lose their measurements on exit; another process's API endpoint cannot expose them automatically. Scraping/export and multiprocess deployment design are subsequent work. Tests verify counters, histogram counts/sums, errors, budgets, label privacy, isolated collectors, and best-effort failure behavior without a live model.
+
+Reference: [Prometheus Python registry](https://prometheus.github.io/client_python/registry/) and [histograms](https://prometheus.github.io/client_python/instrumenting/histogram/).
+
 ## Implemented versus planned
 
 | Area | Current state |
@@ -1130,6 +1149,7 @@ Tests verify same-shape unavailable logs, ownership-before-backend ordering, map
 | Provider capability routing, fallback, and circuit breakers | Planned |
 | Multi-agent handoffs and comparative evaluation | Planned |
 | Agent lifecycle logging | Structured lifecycle, policy, and reader events correlated locally; persistence and distributed propagation pending |
+| Initial agent metrics | Process-local counters/histograms implemented; scrape/export, persistence, dashboards, and multiprocess aggregation pending |
 | Full distributed tracing, token/cost accounting, and rate controls | Planned |
 
 ## Verification record

@@ -1,0 +1,44 @@
+"""Process-local Prometheus counters and duration histograms."""
+
+from math import isfinite
+
+from prometheus_client import CollectorRegistry, Counter, Histogram, generate_latest
+
+from crewos.application.interfaces.agent_metrics import Operation, Outcome
+
+
+class PrometheusAgentMetrics:
+    def __init__(self):
+        self.registry = CollectorRegistry()
+        self._operations = Counter(
+            "crewos_agent_operations_total",
+            "Completed or failed agent operations.",
+            ["operation", "outcome"],
+            registry=self.registry,
+        )
+        self._duration = Histogram(
+            "crewos_agent_operation_duration_seconds",
+            "Elapsed agent operation time in seconds.",
+            ["operation", "outcome"],
+            registry=self.registry,
+            buckets=(0.01, 0.05, 0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300),
+        )
+
+    def observe(self, *, operation: Operation, outcome: Outcome, duration_seconds: float) -> None:
+        if operation not in {"run", "model", "tool"}:
+            raise ValueError("Unsupported metric operation")
+        if outcome not in {"success", "error", "decision_limit"}:
+            raise ValueError("Unsupported metric outcome")
+        if outcome == "decision_limit" and operation != "run":
+            raise ValueError("Decision-limit outcome applies only to runs")
+        if not isfinite(duration_seconds) or duration_seconds < 0:
+            raise ValueError("Metric duration must be finite and nonnegative")
+        self._operations.labels(operation=operation, outcome=outcome).inc()
+        self._duration.labels(operation=operation, outcome=outcome).observe(duration_seconds)
+
+    def render(self) -> bytes:
+        """Snapshot in Prometheus exposition format; no network server is started."""
+        return generate_latest(self.registry)
+
+
+agent_metrics = PrometheusAgentMetrics()
