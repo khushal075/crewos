@@ -983,7 +983,7 @@ Messages + tool schemas -> Provider -> Validate decision
 
 Unknown tools, invalid arguments/decisions, denied permissions, provider failures, and execution errors stop the invocation by propagating the error. They are not converted into fabricated answers. Missing/other-tenant tasks instead produce the reader's normal `unavailable` observation. Tool observations remain untrusted data, not system instructions; this role distinction alone is not a complete prompt-injection defense. Final-answer validation does not verify factual correctness.
 
-Tests implement `ScriptedProvider` only in the test suite. They verify decision -> protected tool -> observation -> final answer, immediate completion, repeated calls hitting the limit, tenant/permission boundaries, and malformed or failed execution paths. They use controlled storage/backend substitutes and establish orchestration behavior, not a real model's ability to select tools. No concrete model adapter, API endpoint, or Celery worker invokes this loop yet. Tool schemas are caller-supplied metadata; trusted setup must keep them consistent with registrations, and permissions remain enforced at execution time. The text observation format is internal; native provider call IDs and wire formats still require adaptation.
+Tests implement `ScriptedProvider` only in the test suite. They verify decision -> protected tool -> observation -> final answer, immediate completion, repeated calls hitting the limit, tenant/permission boundaries, and malformed or failed execution paths. They use controlled storage/backend substitutes and establish orchestration behavior, not a real model's ability to select tools. No concrete model adapter, API endpoint, or Celery worker invokes this loop yet. Tool schemas derive from dispatcher registrations at run start, and permissions remain enforced at execution time. The text observation format is internal; native provider call IDs and wire formats still require adaptation.
 
 ## Text-JSON model decision adapter
 
@@ -993,7 +993,35 @@ The adapter expects one plain JSON object in text content, validated against `Mo
 
 This first adapter uses prompted JSON, not provider-enforced structured output or native function calling. Schema instructions do not guarantee valid responses, permitted actions, correct tool choice, or factual answers. Registry, argument, policy, and ownership checks still apply after parsing. Native provider tool IDs, batches, multimodal output, token accounting, capability negotiation, and error recovery remain separate work.
 
-Controlled-response tests verify formatting, parsing, refusal/error behavior, and separation of observations from system instructions. They do not show a real model choosing tools or establish provider compatibility. A caller can inject an existing configured chat model; no existing endpoint, worker, or fixed workflow automatically uses this adapter. A live-model run and full adapter-to-loop assembly remain pending.
+Controlled-response tests verify formatting, parsing, refusal/error behavior, and separation of observations from system instructions. They do not show a real model choosing tools or establish provider compatibility. A caller can inject an existing configured chat model; no existing endpoint, worker, or fixed workflow automatically uses this adapter. The setup factory below now assembles the adapter and loop; a live-model run remains pending.
+
+## Agent loop assembly
+
+`build_agent_loop(model=..., reader=..., max_decisions=5)` in `crewos/core/agent_setup.py` constructs `JsonDecisionAdapter`, reuses `build_tool_dispatcher` to assemble the protected task-status tool, and returns `AgentLoop`. Model and reader selection remain explicit caller responsibilities. Construction performs no inference or task reads.
+
+```text
+Configured model -> JSON decision adapter -> Agent loop
+                                              |
+Supplied reader -> Protected tool setup -> Dispatcher
+```
+
+Each `loop.run(...)` requires conversation messages and separately supplied trusted execution context. The loop obtains model-visible tool schemas from its dispatcher at the start of each run. This factory does not authenticate a caller, configure credentials/timeouts, or expose an endpoint. Tool schemas now derive from the same registry used for execution. The existing fixed workflow and Celery worker do not invoke this loop.
+
+Assembly tests exercise the actual adapter -> loop -> dispatcher -> policy -> ownership reader path using controlled model responses and an in-memory ownership store. They also verify side-effect-free construction, denied permission, and decision-budget propagation. This is deterministic integration evidence, not a live-model or live-Redis result. Live model selection, provider connectivity, and a runnable demonstration entry point remain pending.
+
+## One source for tool schemas and dispatch
+
+`ToolRegistry.tool_schemas()` builds a fresh tuple of model-visible `ToolSchema` objects from registered definitions, using each argument model's `model_json_schema()`. It exports names, descriptions, and parameter schemas only; handler callables and trusted context are not included. `ToolDispatcher.tool_schemas()` exposes this catalog without exposing its registry internals. `AgentLoop.run(messages=..., context=...)` obtains this metadata automatically at run start; callers no longer supply a second tool list.
+
+```text
+Registered definition
+    +-> Name + description + argument schema -> Model
+    +-> Handler callable                    -> Dispatcher
+```
+
+Schema export does not execute handlers or establish permission. All registered tools are described; this is not a tenant-filtered catalog. Policy enforcement remains mandatory at execution time. Registrations should be completed by trusted setup before runs; runtime mutation/versioning of catalogs is not implemented. Fresh exports isolate later exports and registration schemas from ordinary mutation of an earlier exported parameters dictionary. Frozen DTOs do not make nested dictionaries deeply immutable.
+
+Tests verify schema derivation, exclusion of callables, empty catalogs, mutation isolation between exports, and arrival of generated task-status schema in the assembled adapter's model request. No live-model validation is claimed.
 
 ## Implemented versus planned
 
@@ -1019,6 +1047,7 @@ Controlled-response tests verify formatting, parsing, refusal/error behavior, an
 | Model decision contracts | Tool-call/final-answer union implemented and tested; provider and runtime integration pending |
 | Decision-provider interface | One-decision boundary and input DTOs implemented; concrete adapter and runtime integration pending |
 | Text-JSON decision adapter | Implemented with controlled-response tests; live-model and entrypoint integration pending |
+| Agent loop assembly | Adapter and protected dispatcher connected by setup factory; controlled integration tests only |
 | Dynamic model-chosen tool calls | Planned |
 | Bounded observation/action agent loop | Sequential loop implemented and tested with scripted decisions; real-provider and entrypoint integration pending |
 | Durable run state, checkpoints, and resume | Planned |
