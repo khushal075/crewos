@@ -983,7 +983,7 @@ Messages + tool schemas -> Provider -> Validate decision
 
 Unknown tools, invalid arguments/decisions, denied permissions, provider failures, and execution errors stop the invocation by propagating the error. They are not converted into fabricated answers. Missing/other-tenant tasks instead produce the reader's normal `unavailable` observation. Tool observations remain untrusted data, not system instructions; this role distinction alone is not a complete prompt-injection defense. Final-answer validation does not verify factual correctness.
 
-Tests implement `ScriptedProvider` only in the test suite. They verify decision -> protected tool -> observation -> final answer, immediate completion, repeated calls hitting the limit, tenant/permission boundaries, and malformed or failed execution paths. They use controlled storage/backend substitutes and establish orchestration behavior, not a real model's ability to select tools. No concrete model adapter, API endpoint, or Celery worker invokes this loop yet. Tool schemas derive from dispatcher registrations at run start, and permissions remain enforced at execution time. The text observation format is internal; native provider call IDs and wire formats still require adaptation.
+Tests implement `ScriptedProvider` only in the test suite. They verify decision -> protected tool -> observation -> final answer, immediate completion, repeated calls hitting the limit, tenant/permission boundaries, and malformed or failed execution paths. They use controlled storage/backend substitutes and establish orchestration behavior, not a real model's ability to select tools. The JSON adapter and local CLI below now provide a callable model path; no API endpoint or Celery worker invokes this loop yet. Tool schemas derive from dispatcher registrations at run start, and permissions remain enforced at execution time. The text observation format is internal; native provider call IDs and wire formats still require adaptation.
 
 ## Text-JSON model decision adapter
 
@@ -1007,7 +1007,7 @@ Supplied reader -> Protected tool setup -> Dispatcher
 
 Each `loop.run(...)` requires conversation messages and separately supplied trusted execution context. The loop obtains model-visible tool schemas from its dispatcher at the start of each run. This factory does not authenticate a caller, configure credentials/timeouts, or expose an endpoint. Tool schemas now derive from the same registry used for execution. The existing fixed workflow and Celery worker do not invoke this loop.
 
-Assembly tests exercise the actual adapter -> loop -> dispatcher -> policy -> ownership reader path using controlled model responses and an in-memory ownership store. They also verify side-effect-free construction, denied permission, and decision-budget propagation. This is deterministic integration evidence, not a live-model or live-Redis result. Live model selection, provider connectivity, and a runnable demonstration entry point remain pending.
+Assembly tests exercise the actual adapter -> loop -> dispatcher -> policy -> ownership reader path using controlled model responses and an in-memory ownership store. They also verify side-effect-free construction, denied permission, and decision-budget propagation. This is deterministic integration evidence, not a live-model or live-Redis result. The CLI below provides a runnable entry point; live model selection and provider connectivity validation remain pending.
 
 ## One source for tool schemas and dispatch
 
@@ -1022,6 +1022,77 @@ Registered definition
 Schema export does not execute handlers or establish permission. All registered tools are described; this is not a tenant-filtered catalog. Policy enforcement remains mandatory at execution time. Registrations should be completed by trusted setup before runs; runtime mutation/versioning of catalogs is not implemented. Fresh exports isolate later exports and registration schemas from ordinary mutation of an earlier exported parameters dictionary. Frozen DTOs do not make nested dictionaries deeply immutable.
 
 Tests verify schema derivation, exclusion of callables, empty catalogs, mutation isolation between exports, and arrival of generated task-status schema in the assembled adapter's model request. No live-model validation is claimed.
+
+## Local agent command-line demonstration
+
+Run the internal agent path without adding another HTTP API:
+
+```bash
+poetry run python -m crewos.core.agent_demo \
+  --tenant-id tenant_a \
+  --message "Check the status of task TASK_ID using the available tool." \
+  --max-decisions 5
+```
+
+Use an existing task ID returned by `/domain/run`. That workflow's matching Celery worker must have processed the task to obtain a completed state. A lookup can also observe in-progress work. The demo submits no new Celery task. Configure `LLM_BASE_URL`, `LLM_MODEL`, and `API_KEY` as needed for the existing model client, along with `REDIS_RESULT_BACKEND`, `TENANT_API_KEYS`, and explicit `TENANT_PERMISSIONS` grants such as `{"tenant_a":["agent_task.read"]}`. Redis ownership records must still exist; an expired ownership record returns unavailable. See the existing configuration/setup sections for service startup.
+
+The command prompts for a tenant token using `getpass`. Automation may supply `CREWOS_TENANT_TOKEN` in the environment; there is no command-line token flag. This authenticates against the same server-configured tenant keys and builds context from server-configured permissions. No CLI option assigns grants. This is a trusted local operator entry point with access to application configuration, not a remote security boundary against someone controlling that machine or environment.
+
+```text
+CLI -> Authenticate tenant -> Server-assigned context
+                               |
+             Configured model + Reader -> Agent setup -> Loop
+                                                        |
+                                          Protected tool dispatch
+                                                        |
+                                             Final answer or error
+```
+
+Exit code 0 prints the model's final answer, 1 indicates an execution/model/policy failure, and 2 indicates argument or authentication failure. The command reports generic failure types without printing raw exception details. Final answers are model output and may still be incorrect or omit tool use; a zero exit code does not prove the requested lookup occurred. The adapter's prompted JSON can be malformed, which fails the run rather than silently manufacturing an answer. The existing model client uses its configured per-call timeout and no SDK retries; the loop's decision limit is not a wall-clock deadline.
+
+CLI tests exercise real authentication, context construction, adapter, loop, dispatch, and ownership using synthetic credentials and controlled model/storage substitutes. They verify success, authentication failure, denied permission, decision limits, sanitized errors, and interactive token fallback. No live provider or live Redis was contacted for these tests. The demo is runnable code, not yet evidence of a successful live-model execution; tool traces and a reproducible live-run evidence record remain pending.
+
+## Structured agent lifecycle logging
+
+`AgentLoop` emits structured metadata through an injected standard Python logger; `build_agent_loop` supplies the existing JSON logger as `crewos.agent`. Each `run()` generates a fresh `agent_run_id`, distinct from the Celery task ID being inspected. Events correlate that ID and tenant across model calls, tool execution, and one terminal success/failure event. Each attempted tool dispatch receives its own `tool_call_id`; decision steps are one-based.
+
+| Event | Purpose |
+|---|---|
+| `agent_run_started` | Run begins with configured decision limit |
+| `agent_model_call_started` | A model decision request begins |
+| `agent_model_call_completed` | A validated decision arrives, with decision type and elapsed milliseconds |
+| `agent_tool_call_started` | Protected dispatch begins; this does not mean authorization succeeded |
+| `agent_tool_call_completed` | Dispatch returned successfully, with elapsed milliseconds |
+| `agent_run_completed` | Final answer returned, with duration, decisions, attempted/completed tool counts |
+| `agent_run_failed` | Invocation stopped, with phase, exception class, counts, and generic reason |
+
+Durations use a monotonic clock. Decision-limit exhaustion logs a warning with `reason: decision_limit`; other execution failures log an error. Exceptions still propagate unchanged. Tool attempts and completed calls are separate counters. A completed tool call may return `unavailable`; it does not establish a successful business outcome or correct model answer. Missing model/tool completion events followed by a failure identify the failed phase. Interrupts/process termination outside ordinary exceptions are not guaranteed to produce terminal events.
+
+Lifecycle events deliberately exclude message text, tool arguments, observations, final answers, permission collections, credentials, raw exception text, and stack traces. Registered tool names are included; unregistered model-proposed names become `[unregistered]` to avoid logging arbitrary model content. These exclusions apply to the new lifecycle events, not a blanket redaction guarantee for every dependency or existing log in the repository. Tenant and unique run/call IDs belong in logs/traces, not high-cardinality metric labels.
+
+The CLI now emits JSON progress records through the configured logger in addition to its final answer. Existing logging goes to stdout; consumers should not treat the command's entire output as a single answer. Event availability depends on the configured log level. Logs are not automatically persisted or shipped to a monitoring backend. HTTP request-ID propagation, OpenTelemetry spans, dashboards, metrics, token/cost accounting, and retention controls remain subsequent work; local timings are not distributed traces.
+
+Tests establish event ordering, shared run correlation, distinct tool-call/run IDs, terminal failure behavior, decision-limit reasons, independent run IDs, and exclusion of sensitive sentinel text from events. Controlled CLI/loop tests do not constitute a new live-model run. An earlier manual local run did observe one real Ollama-selected task-status tool call and a final answer; that observation was temporary instrumentation, not a stored trace artifact.
+
+## Correlated policy-decision events
+
+The enforcement gate now emits `tool_policy_evaluated` with action, tenant, allow/deny effect, reason code, and policy version. Allow is logged at INFO and denial at WARNING. Evaluation exceptions or malformed policy decisions emit `tool_policy_evaluation_failed` at ERROR with only the exception class. Authorization behavior remains unchanged: denial or evaluation failure prevents operation execution; operation errors after an allow remain operation errors, not policy-evaluation failures. An allow event grants action-level permission only and does not establish ownership.
+
+`ToolLogContext` in `application/services/tool_log_context.py` carries only agent run ID, tool-call ID, and decision step. The agent loop sets this ContextVar-backed scope around protected dispatch; policy events inside it carry the same correlation IDs as lifecycle events. Scope reset in `finally` restores any previous context, including on exceptions. Calls outside an agent scope still log decisions but do not invent agent IDs. These fields are observability metadata, never trusted identity or authorization inputs. This local scope is not propagated across Celery/process/network boundaries and is not an OpenTelemetry trace.
+
+`build_tool_dispatcher` supplies the JSON logger `crewos.policy`. Events exclude permission collections, arguments, output, credentials, exception messages, and stack traces. Actions, policy reason codes, and policy versions are supplied by trusted application/policy code and should remain nonsensitive. Tool arguments or model text must not be used as action names. These logs are not a durable, tamper-evident audit store; storage, retention, and export remain pending.
+
+Tests cover correlated allow/deny events, failed evaluation, blocked operations, sensitive-field exclusion, nested context restoration after exceptions, and matching policy/lifecycle IDs in an actual loop invocation with controlled dependencies.
+
+## Task ownership and status-read events
+
+`CeleryTaskStatusReader` now emits JSON metadata through `crewos.task_status`, with an injectable logger for controlled tests. `task_ownership_checked` records either `accessible` or `unavailable`. Missing registrations and other-tenant registrations deliberately produce the same unavailable event shape, never the actual owner's identity. After an accessible registration, `task_status_read_completed` records the mapped application state. It does not log raw custom backend states.
+
+`task_status_read_failed` identifies `ownership` or `backend` phase and exception class; the original exception still propagates. A backend failure can therefore follow a successful ownership event, while an ownership storage failure never reaches backend state access. Accessible ownership is not a permission grant, a guarantee of retained results, or evidence of completed work. Existing policy enforcement remains outside this reader.
+
+When called inside an agent tool scope, these events carry the same agent run ID, tool-call ID, and decision step as policy/lifecycle events. Standalone reads omit those agent correlation fields. Events exclude task identifiers, credentials, owner records, raw exceptions, tool arguments, and task output. They describe the reader path only, not an exhaustive audit of every ownership-store use by existing APIs.
+
+Tests verify same-shape unavailable logs, ownership-before-backend ordering, mapped status, correlated IDs, sensitive-field exclusion, and propagated failure phases. These are local structured events, not exported metrics, distributed tracing, or persisted audit evidence.
 
 ## Implemented versus planned
 
@@ -1048,7 +1119,8 @@ Tests verify schema derivation, exclusion of callables, empty catalogs, mutation
 | Decision-provider interface | One-decision boundary and input DTOs implemented; concrete adapter and runtime integration pending |
 | Text-JSON decision adapter | Implemented with controlled-response tests; live-model and entrypoint integration pending |
 | Agent loop assembly | Adapter and protected dispatcher connected by setup factory; controlled integration tests only |
-| Dynamic model-chosen tool calls | Planned |
+| Local CLI demo | Authenticated entry point implemented and tested with controlled dependencies; live-run evidence pending |
+| Dynamic model-chosen tool calls | Real-model validation pending |
 | Bounded observation/action agent loop | Sequential loop implemented and tested with scripted decisions; real-provider and entrypoint integration pending |
 | Durable run state, checkpoints, and resume | Planned |
 | Scoped persistent memory | Planned; memory file is a placeholder |
@@ -1057,6 +1129,7 @@ Tests verify schema derivation, exclusion of callables, empty catalogs, mutation
 | Human approvals and protected external actions | Planned |
 | Provider capability routing, fallback, and circuit breakers | Planned |
 | Multi-agent handoffs and comparative evaluation | Planned |
+| Agent lifecycle logging | Structured lifecycle, policy, and reader events correlated locally; persistence and distributed propagation pending |
 | Full distributed tracing, token/cost accounting, and rate controls | Planned |
 
 ## Verification record
