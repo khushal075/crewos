@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 
+from crewos.application.dtos.decision_request import ToolSchema
+
 
 @dataclass(frozen=True)
 class ToolDefinition:
@@ -36,3 +38,17 @@ class ToolRegistry:
             return self._tools[name]
         except KeyError:
             raise UnknownToolError(f"Unknown tool: {name}") from None
+
+    def tool_schemas(self) -> tuple[ToolSchema, ...]:
+        """Return fresh model-visible metadata, without executable handlers.
+
+        This is an inventory, not a tenant-filtered authorization decision.
+        """
+        return tuple(
+            ToolSchema(
+                name=tool.name,
+                description=tool.description,
+                parameters=tool.argument_schema.model_json_schema(),
+            )
+            for tool in self._tools.values()
+        )

@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel
 
+from crewos.application.dtos.decision_request import ToolSchema
 from crewos.application.dtos.tool_execution_context import ToolExecutionContext
 from crewos.application.services.tool_registry import ToolRegistry
 
@@ -9,6 +10,10 @@ from crewos.application.services.tool_registry import ToolRegistry
 class ToolDispatcher:
     def __init__(self, registry: ToolRegistry):
         self._registry = registry
+
+    def tool_schemas(self) -> tuple[ToolSchema, ...]:
+        """Describe the same registrations used by dispatch; grant no access."""
+        return self._registry.tool_schemas()
 
     def dispatch(
         self,

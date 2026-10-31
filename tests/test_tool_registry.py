@@ -61,3 +61,32 @@ def test_registry_instances_have_independent_registrations():
     first.register(definition())
     with pytest.raises(UnknownToolError):
         ToolRegistry().get("get_agent_task_status")
+
+
+def test_tool_schemas_derive_from_registrations_and_exclude_handlers():
+    handler = Mock()
+    registry = ToolRegistry()
+    tool = definition(handler=handler)
+    registry.register(tool)
+    schemas = registry.tool_schemas()
+    assert len(schemas) == 1
+    assert schemas[0].model_dump() == {
+        "name": tool.name,
+        "description": tool.description,
+        "parameters": GetAgentTaskStatusInput.model_json_schema(),
+    }
+    handler.assert_not_called()
+
+
+def test_schema_snapshots_do_not_mutate_registration_or_later_exports():
+    registry = ToolRegistry()
+    registry.register(definition())
+    first = registry.tool_schemas()
+    first[0].parameters["properties"].clear()
+    later = registry.tool_schemas()
+    assert "agent_task_id" in later[0].parameters["properties"]
+    assert "agent_task_id" in registry.get("get_agent_task_status").argument_schema.model_fields
+
+
+def test_empty_registry_exports_no_tools():
+    assert ToolRegistry().tool_schemas() == ()

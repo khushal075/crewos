@@ -7,8 +7,7 @@ from unittest.mock import Mock
 import pytest
 from pydantic import ValidationError
 
-from crewos.application.dtos.agent_task_status import GetAgentTaskStatusInput
-from crewos.application.dtos.decision_request import DecisionMessage, ToolSchema
+from crewos.application.dtos.decision_request import DecisionMessage
 from crewos.application.dtos.model_decision import FinalAnswerDecision, ToolCallDecision
 from crewos.application.dtos.tool_execution_context import ToolExecutionContext
 from crewos.application.interfaces.decision_provider import DecisionProviderInterface
@@ -38,13 +37,6 @@ def tool_call(name="get_agent_task_status"):
 def inputs(tenant="tenant_a", permissions=("agent_task.read",)):
     return {
         "messages": [DecisionMessage(role="user", content="Check task-123's status.")],
-        "tools": [
-            ToolSchema(
-                name="get_agent_task_status",
-                description="Read an owned task's status.",
-                parameters=GetAgentTaskStatusInput.model_json_schema(),
-            )
-        ],
         "context": ToolExecutionContext(tenant_id=tenant, permissions=permissions),
     }
 

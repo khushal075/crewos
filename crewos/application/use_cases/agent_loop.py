@@ -5,7 +5,7 @@ import json
 
 from pydantic import TypeAdapter
 
-from crewos.application.dtos.decision_request import DecisionMessage, ToolSchema
+from crewos.application.dtos.decision_request import DecisionMessage
 from crewos.application.dtos.model_decision import FinalAnswerDecision, ModelDecision
 from crewos.application.dtos.tool_execution_context import ToolExecutionContext
 from crewos.application.interfaces.decision_provider import DecisionProviderInterface
@@ -35,7 +35,6 @@ class AgentLoop:
         self,
         *,
         messages: Sequence[DecisionMessage],
-        tools: Sequence[ToolSchema],
         context: ToolExecutionContext,
     ) -> FinalAnswerDecision:
         """Caller establishes message provenance and trusted execution context.
@@ -45,7 +44,7 @@ class AgentLoop:
         Failures propagate and no successful answer is fabricated.
         """
         history = list(messages)
-        tool_schemas = tuple(tools)
+        tool_schemas = self._dispatcher.tool_schemas()
         for _ in range(self._max_decisions):
             decision = self._decision_adapter.validate_python(
                 self._provider.decide(messages=tuple(history), tools=tool_schemas)
