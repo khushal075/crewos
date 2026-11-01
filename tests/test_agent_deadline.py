@@ -100,3 +100,19 @@ def test_answer_before_deadline_returns_normally(monkeypatch):
 def test_invalid_deadline_configuration_is_rejected(value):
     with pytest.raises(ValueError, match="finite and positive"):
         AgentLoop(provider=Mock(), dispatcher=Mock(), max_duration_seconds=value)
+
+
+def test_remaining_budget_decreases_between_model_decisions(monkeypatch):
+    final = FinalAnswerDecision(type="final_answer", answer="Done")
+    loop, provider, _, clock = deadline_loop(monkeypatch, [tool_call(), final])
+    loop._max_duration_seconds = 10
+    original = provider.decide
+
+    def advance_clock(**kwargs):
+        result = original(**kwargs)
+        clock[0] += 3
+        return result
+
+    provider.decide = advance_clock
+    assert loop.run(**inputs()) == final
+    assert provider.timeouts == [10, 7]

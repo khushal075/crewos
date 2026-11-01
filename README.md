@@ -950,7 +950,7 @@ This is an internal application contract, not a requirement that each provider r
 
 ## Decision-provider interface
 
-`DecisionProviderInterface` in `crewos/application/interfaces/decision_provider.py` defines `decide(messages=..., tools=...) -> ModelDecision`: request exactly one tool-call or final-answer proposal. This new boundary is for the agent runtime; the existing `LLMProviderInterface.get()` and fixed workflow are unchanged. The bounded loop below uses this interface; a text-JSON adapter is implemented below alongside the test-scripted implementation; live-provider validation is pending.
+`DecisionProviderInterface` in `crewos/application/interfaces/decision_provider.py` defines `decide(messages=..., tools=..., timeout_seconds=...) -> ModelDecision`: request exactly one tool-call or final-answer proposal. This new boundary is for the agent runtime; the existing `LLMProviderInterface.get()` and fixed workflow are unchanged. The bounded loop below uses this interface; a text-JSON adapter is implemented below alongside the test-scripted implementation; live-provider validation is pending.
 
 Inputs in `decision_request.py` separate conversation data from executable tool registrations:
 
@@ -1230,9 +1230,19 @@ Regression tests run Celery's actual failure tracer for both task types with a c
 
 An exhausted budget raises `AgentDeadlineExceeded`, emits terminal `agent_run_failed` with reason/phase `deadline`, and records a run metric with outcome `deadline`. Model/tool calls that returned successfully before the checkpoint retain their operation-success measurements even if their result arrived too late for the run to continue. A late final answer is not returned as run success. The decision limit remains an independent budget. Invalid deadline settings fail construction before model invocation.
 
-This is cooperative stopping at execution boundaries, not a hard wall-clock cap: a synchronous in-flight request may continue beyond the deadline until its own timeout or return. It does not cancel remote work, undo tool effects, reserve enough time for a complete next call, or propagate remaining budget into provider/tool network timeouts. Celery's existing soft/hard limits provide a separate outer process guard. The CLI and queued runner currently use the setup default; no client-controlled deadline field or CLI flag is added by this step. Distributed deadline propagation and cancellation are subsequent work.
+This is cooperative stopping at execution boundaries, not a hard wall-clock cap: a synchronous in-flight request may continue beyond the deadline until its own timeout or return. It does not cancel remote work, undo tool effects, reserve enough time for a complete next call, or propagate remaining budget into tool network timeouts. Model timeout propagation is implemented in the following section. Celery's existing soft/hard limits provide a separate outer process guard. The CLI and queued runner currently use the setup default; no client-controlled deadline field or CLI flag is added by this step. Distributed deadline propagation and cancellation are subsequent work.
 
 Tests use a controlled monotonic clock to verify expiry before inference, late model decisions/final answers, late tool observations, deadline logging/metrics, normal completion, and invalid configuration. No sleeping or live model calls are used for these checks.
+
+## Remaining-budget model timeouts
+
+Before requesting each decision, the loop computes the positive remaining elapsed-time budget and supplies `timeout_seconds` to `DecisionProviderInterface.decide`. `JsonDecisionAdapter` validates that allowance and calls the chat model with `timeout=min(remaining_seconds, max_call_timeout_seconds)`. The adapter's standalone call cap defaults to 30 seconds; `build_agent_loop` explicitly sets it from `settings.LLM_TIMEOUT`, matching the application's configured model client. Custom direct adapter construction must supply an appropriate cap for its injected model. The shared model's default configuration is not mutated.
+
+For example, with a 30-second configured call cap and 4 seconds remaining in the run, the next request receives a 4-second timeout. With 90 seconds remaining, it receives 30 seconds. The loop recomputes remaining time before each decision rather than reusing the initial run budget. Invalid/non-finite/nonpositive timeout allowances fail before inference. No new SDK retries are enabled; the existing model builder retains `max_retries=0`.
+
+The installed LangChain OpenAI-compatible client forwards the per-call `timeout` to the SDK request. A controlled HTTP-transport test verifies the timeout actually reaches connect/read/write/pool settings, not merely a mocked adapter method. A network timeout is not a strict total request deadline: transport phases, reading behavior, local prompt/response processing, and remote execution may still outlive the allowance. Post-call deadline checks remain necessary, and timeouts do not establish remote cancellation. Tool timeout propagation and cancellation remain pending. Provider/transport timeout exceptions remain execution failures; they are not automatically reclassified as deadline exhaustion or retried.
+
+Tests cover shrinking allowances between decisions, configured call caps, invalid values, and the installed client-to-HTTP transport path without contacting a live provider. Reference: [official OpenAI Python SDK timeout documentation](https://developers.openai.com/api/reference/python).
 
 ## Implemented versus planned
 

@@ -24,9 +24,11 @@ class ScriptedProvider(DecisionProviderInterface):
     def __init__(self, decisions):
         self._decisions = iter(decisions)
         self.calls = []
+        self.timeouts = []
 
-    def decide(self, *, messages, tools):
+    def decide(self, *, messages, tools, timeout_seconds):
         self.calls.append((messages, tools))
+        self.timeouts.append(timeout_seconds)
         return next(self._decisions)
 
 
