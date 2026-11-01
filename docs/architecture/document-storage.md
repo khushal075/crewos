@@ -2,7 +2,8 @@
 
 The validated snapshot and storage interface are implemented by a single-host
 SQLite adapter. An authorized ingestion facade delegates to an internal processing coordinator,
-which connects preparation, chunking, and storage in-process; API and worker integration remain future work.
+which connects preparation, chunking, and storage. Authenticated APIs and durable
+background submissions now wrap that flow; see [Document lifecycle](document-lifecycle.md).
 
 ```mermaid
 flowchart LR
@@ -112,8 +113,9 @@ before processing begins.
 `ingest()` creates a new ID/version 1 and provides no submission idempotency;
 retrying after uncertain persistence can create a duplicate. `update()` now
 preserves identity and appends a version under a separate permission and
-optimistic concurrency precondition. Read/delete authorization, request
-idempotency, and asynchronous scheduling remain future use cases. Low-level storage remains
+optimistic concurrency precondition. Authorized read/delete operations and durable API/background submissions are now
+implemented. The HTTP adapter uses `DocumentSubmissionFacade` for key registration
+and receipt lookup, then invokes this processing facade through a claimed job. Low-level storage remains
 protected by tenant-scoped SQL but cannot establish caller authentication.
 
 ## Versioned updates
@@ -137,8 +139,30 @@ Update lifecycle events use the `document_update_*` prefix. As with creation,
 only safe IDs, timings, counts, and exception class names are emitted. No
 credentials, grants, routes, or worker behavior change in this increment.
 
-## Next implementation
+## Durable jobs and authorized lifecycle
 
-Add authorized read/delete operations, then transport/background execution. Retrieval will later use an explicit
-read/search boundary. No API/worker routes, environment grants, or container
-volumes are added for ingestion in this increment.
+`DocumentReadRequest` and `DocumentDeleteRequest` identify a resource only; trusted
+tenant scope and `document.read`/`document.delete` are checked at the facade before
+lookup/deletion. Reads return exact or latest snapshots. Delete removes all local
+versions and embedded chunks. It also invalidates in-flight job tokens and clears
+retained job source for that document, preventing an old attempt from restoring it.
+
+The document database now uses schema version 2. Initialization transactionally
+adds `document_jobs` to a recognized version-1 database without changing snapshots.
+The job table stores tenant-scoped idempotency hashes/fingerprints, original
+source/options until completion, attempt leases, and safe outcome references.
+Document append and successful job outcome share a transaction; they either both
+commit or both roll back. The composite `DocumentManagementStoreInterface`
+describes that combined persistence requirement for a future adapter.
+
+Completed job receipts remain after document deletion and show no available result;
+this is intentional retry protection rather than retained source text. Pending
+and failed jobs may retain source for retry and need an operator retention policy.
+Secure media erasure and backup copies remain outside SQL logical deletion.
+
+## Remaining scope
+
+Retrieval, indexing, rich-format parsers, multi-host persistence, and external
+approval workflows remain separate future work. This document-management batch
+introduces no retrieval functionality. See [Document lifecycle](document-lifecycle.md)
+for the endpoint contract, queue lifecycle, failure cases, and verification scope.

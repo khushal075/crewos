@@ -1,6 +1,6 @@
 # CrewOS
 
-A Python foundation for building an AI agent orchestration platform. Currently it executes a fixed two-step LLM workflow: analysis followed by processing. Tool-using agent loops, durable workflow checkpoints, approvals, and multi-agent evaluation are planned, not implemented capabilities.
+A Python foundation for an AI agent platform, with a fixed two-step workflow, a bounded tool-using agent loop, and tenant-scoped document management. Single-host durable agent records and document versions are implemented. Retrieval, approvals, and multi-agent evaluation remain planned.
 
 ## Contents
 
@@ -19,6 +19,7 @@ A Python foundation for building an AI agent orchestration platform. Currently i
 - [Kubernetes](#kubernetes)
 - [Troubleshooting](#troubleshooting)
 - [Implemented versus planned](#implemented-versus-planned)
+- [Document lifecycle API and background ingestion](#document-lifecycle-api-and-background-ingestion)
 - [Contributing and documentation](#contributing-and-documentation)
 
 ## Current behavior
@@ -32,6 +33,8 @@ A Python foundation for building an AI agent orchestration platform. Currently i
 - Provider connection errors, HTTP 429, and HTTP 5xx receive bounded retries with backoff and jitter. Credential/input errors do not. Unsupported or excessive Retry-After values stop retries rather than retrying early.
 - Model-client automatic retries are disabled; Celery owns inference retries. Generation may repeat on retry; no external write tools exist yet.
 - HTTP logs include method, path, claimed tenant header, server request ID, duration, and status. The logged header is not an authenticated identity. Application code does not print raw prompts or model output.
+
+Document create/update/read/delete APIs and durable synchronous/background submissions are also available; see [Document lifecycle](#document-lifecycle-api-and-background-ingestion).
 
 ## Architecture
 
@@ -1297,6 +1300,7 @@ These controls are verified with controlled tests and temporary databases. Earli
 | Dynamic model-chosen tool calls | One successful local tool-choice path observed; broader evaluation pending |
 | Bounded observation/action agent loop | Live CLI/queued paths verified; decision count and cooperative elapsed-time budget implemented |
 | Durable run state, checkpoints, and resume | SQLite single-host records, leases, checkpoints, and explicit resume implemented; shared multi-host adapter pending |
+| Document lifecycle, idempotent API submissions, and background ingestion | Implemented for plain-text documents with single-host SQLite; controlled Celery delivery tested |
 | Scoped persistent memory | Planned; memory file is a placeholder |
 | MCP discovery and tool integration | Planned |
 | Evidence retrieval, hybrid search, and RAG evaluation | Planned |
@@ -1330,7 +1334,10 @@ crewos/ingestion/
   document_store.py       tenant-scoped storage interface and lifecycle errors
   service.py              preparation orchestration
   document_ingestion_facade.py  public authorization and lifecycle logging
-  document_processing_coordinator.py  internal preparation/chunking/storage sequence
+  document_processing_coordinator.py  internal processing and document lifecycle
+  document_submission_facade.py  authorized durable submissions, job reads/retries
+  document_jobs.py         job contracts and persistence interface
+  document_job_processor.py  claimed-job execution and atomic outcome coordination
   bootstrap.py            constructs preparation and storage adapters
   adapters/plain_text.py  UTF-8 extraction implementation
   adapters/sqlite_document_store.py  local transactional snapshot storage
@@ -1346,9 +1353,9 @@ there is one implementation of each contract and behavior.
 
 `DocumentIngestionFacade` now provides authorized document creation, versioned
 updates, and lifecycle logging. Its internal `DocumentProcessingCoordinator` sequences
-preparation, chunking, and storage. Authentication/transport integration,
-authorized read/delete operations, ingestion queues, and retrieval/indexing remain
-planned. Existing API routes and Celery workers are not connected to ingestion yet. Separate worker processes can
+preparation, chunking, and storage. Authenticated HTTP create/update/read/delete and durable synchronous/background
+submissions are now connected. Retrieval/indexing, additional parsers, and
+multi-host storage remain planned. Separate worker processes can
 later execute this module without introducing a network service boundary.
 
 The first ingestion increment is `DocumentInput` in
@@ -1364,8 +1371,8 @@ correctness, or grant access. Client-supplied tenant identity, document IDs, and
 permissions are rejected. The ingestion facade obtains tenant identity
 from caller-established authenticated context; the processing coordinator assigns document identity on the backend.
 Validation does not make document content trusted instructions or prevent prompt
-injection. There is no ingestion endpoint, persistence, embeddings, or search
-yet. Chunking is available separately through `crewos.chunking`.
+injection. Ingestion endpoints and persistence are implemented; embeddings and
+search remain planned. Chunking is available through `crewos.chunking`.
 
 Text extraction uses an application-owned `DocumentParserInterface`
 (`crewos/ingestion/document_parser.py`). Its `parse(content: bytes)
@@ -1418,9 +1425,9 @@ its text matches the source or that a sequence covers the document; the chunking
 service checks those invariants against the source.
 
 This is an in-memory chunk contract, not a stored retrieval record. Tenant,
-document identity/version, and chunking configuration will need to be attached
-by the authenticated ingestion/storage flow before indexing. No chunk
-storage is implemented yet. The character-window algorithm is described below.
+document identity/version, and chunking configuration are attached
+by the authenticated ingestion/storage flow before future indexing. Chunks are
+stored inside immutable document versions. The character-window algorithm is described below.
 
 The implemented preparation and planned ingestion flow is:
 
@@ -1460,7 +1467,8 @@ coordination. No separate network service is introduced.
 `content` bytes (1 to 4,000,000), a bounded title, and optional source reference.
 It rejects tenant identity, permissions, document IDs, versions, and chunking
 options. Options are server-configured on the processing coordinator. This bytes command is
-not an HTTP upload schema and does not bound buffering in a future upload layer.
+not an HTTP upload schema. The HTTP adapter accepts plain-text JSON and applies
+a separate streaming body limit; raw file upload remains future work.
 
 `ingest(request=..., context=...)` requires caller-established trusted
 `ToolExecutionContext`; it does not authenticate requests. The executor checks
@@ -1483,8 +1491,10 @@ metrics or distributed traces.
 `ingest()` creates a new document each time; repeated create submissions are not
 idempotent, including retries after an uncertain commit. `update()` preserves
 document identity and requires `document.update` plus an expected current
-revision, as described below. Request deduplication, authorized read/delete use
-cases, background execution, and API wiring remain future steps. Tests compose the actual parser,
+revision, as described below. The HTTP adapter uses the separate authorized
+`DocumentSubmissionFacade` and durable jobs for retry protection, then invokes
+this processing facade. Authorized reads/deletes and background delivery are
+implemented below; direct Python `ingest()` calls still create a new document. Tests compose the actual parser,
 chunker, and SQLite store and separately verify authorization and failure gates.
 Run `poetry run pytest tests/test_document_ingestion_request.py tests/test_document_ingestion_facade.py tests/test_document_processing_coordinator.py tests/test_ingestion_module.py -q`.
 
@@ -1521,9 +1531,10 @@ prepares and chunks the full replacement, then appends version
 The initial read is an early check, not a lock held during parsing. If another
 update commits during processing, the storage adapter's transactional
 next-version check rejects the losing append. The facade propagates that conflict
-without retrying or merging changes. Retrying an already successful update with
-its original expected version also conflicts; this is not an idempotent replay
-of the prior response. API/worker integration remains future work.
+without retrying or merging changes. Direct Python update calls with the old
+expected version conflict after a successful append. HTTP clients instead reuse
+the original `Idempotency-Key` and payload to obtain the prior receipt without
+executing another update; changing the payload under that key conflicts.
 
 Tests cover permissions, tenant scope, missing documents, stale/future revisions,
 processing failures preserving old versions, safe logging, and synchronized
@@ -1589,13 +1600,157 @@ network-filesystem deployment requires another storage implementation. It does
 not authenticate callers: the ingestion facade requires trusted tenant
 context and checks `document.create` or `document.update`; its processing
 coordinator assigns a new UUID4/version 1 or appends an expected revision and
-connects preparation, chunking, and storage. API routes, workers, configuration, and deployment volumes
-are not wired to document storage yet. Future external-index deletion and backup
+connects preparation, chunking, and storage. Document routes, the document worker,
+settings, and a shared Compose file path are now wired to this store. Future external-index deletion and backup
 retention require their own lifecycle handling; local logical deletion is not
 secure media erasure or a guarantee about those external copies.
 
 See [Document storage contract](docs/architecture/document-storage.md).
 Checks: `poetry run pytest tests/test_stored_document_contract.py tests/test_sqlite_document_store.py -q`.
+
+## Document lifecycle API and background ingestion
+
+Document management is implemented without retrieval. The source format is
+plain-text JSON (`title`, `text`, optional `source_ref`); no PDF/Word upload,
+embeddings, vector database, or search endpoint is added here.
+
+### Operations and permissions
+
+All routes require `X-Tenant-ID` and a matching bearer token. Grants come only
+from server-configured `TENANT_PERMISSIONS`, never request-body claims.
+
+| Method and route | Behavior | Permission |
+|---|---|---|
+| `POST /documents` | Durable create; synchronous by default | `document.create` |
+| `PUT /documents/{document_id}` | Full replacement with `expected_version` | `document.update` |
+| `GET /documents/{document_id}` | Latest stored snapshot, including text/chunks | `document.read` |
+| `GET /documents/{document_id}?version=1` | Exact historical snapshot | `document.read` |
+| `DELETE /documents/{document_id}` | Remove all local versions/chunks; return 204 | `document.delete` |
+| `GET /documents/jobs/{job_id}` | Durable status and result reference; no source content | `document.job.read` |
+| `POST /documents/jobs/{job_id}/retry` | Requeue an eligible failed/expired attempt | `document.job.retry` plus the original create/update permission |
+
+Both write routes require `Idempotency-Key`: 1–128 ASCII letters, digits, dots,
+underscores, colons, or hyphens. Add `?background=true` to enqueue rather than
+process inside the HTTP call. A queued/running submission returns 202; a completed
+synchronous submission or receipt replay returns 200. The response contains
+`job` and `replayed`; the job identifies the document and saved version. Fetch
+source text separately through the authorized document read route.
+
+An example opt-in permission assignment for an existing authenticated tenant is:
+
+```dotenv
+TENANT_PERMISSIONS={"tenant_a":["document.create","document.update","document.read","document.delete","document.job.read","document.job.retry"]}
+```
+
+Merge needed grants with existing assignments rather than replacing unrelated
+permissions. This example changes no private environment file automatically.
+Restart the API/worker after changing settings. A worker also checks that the
+tenant still has an active configured token and the operation's current grant;
+permission revocation after submission prevents mutation.
+
+### Example requests
+
+Use a token already configured for `tenant_a` in `CREWOS_TENANT_TOKEN`:
+
+```bash
+curl -sS -X POST 'http://localhost:8000/documents?background=true' \
+  -H "Authorization: Bearer $CREWOS_TENANT_TOKEN" \
+  -H 'X-Tenant-ID: tenant_a' \
+  -H 'Idempotency-Key: crm-runbook-001' \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"CRM recovery","text":"Check webhook delivery logs before retrying.","source_ref":"runbook:crm"}'
+```
+
+Record the returned `job.job_id` and `job.document_id`. Poll the job with
+`GET /documents/jobs/JOB_ID`, then read the source using
+`GET /documents/DOCUMENT_ID`. For an update, send the complete replacement body:
+
+```json
+{"title":"CRM recovery","text":"Updated recovery instructions.","expected_version":1}
+```
+
+Use `PUT /documents/DOCUMENT_ID` and a new idempotency key for this new logical
+operation. An omitted source reference clears it. Repeat the same key/input for
+network retries; use a new key only for a genuinely new submission.
+
+### Durable retries and outcomes
+
+`DocumentSubmissionFacade` authorizes registration before touching job storage.
+Jobs and snapshots share the document SQLite database. Key hashes are unique
+per tenant; a canonical fingerprint covers operation, target/expected version
+when updating, source bytes, and normalized metadata. The original chunking
+options are saved with the job. Repeated keys with the same validated input
+return the existing job; changed input returns 409. Background versus synchronous
+execution is a delivery choice and does not create a new logical submission.
+
+A worker claims a bounded, expiring attempt. The document version and successful
+job state commit atomically in one transaction. A crash after commit but before
+acknowledgement therefore replays the receipt without another append. Concurrent
+active claims are rejected; expired attempts can be reclaimed and their old
+tokens cannot commit. There are no automatic inference calls or external writes.
+This protects local document persistence, not arbitrary external exactly-once
+execution.
+
+Jobs expose `queued`, `running`, `succeeded`, or `failed`, attempt count,
+`lease_active`, publication confirmation, an error code, and `result_available`.
+No source payload, idempotency key, lease token, or credential is returned in a
+job response. After an uncertain publish (503), repeat the original write with
+the same key/input. Re-publication uses the same job ID. Failures are durable;
+they are not automatically retried in a loop. Explicit retry accepts failed or
+expired attempts within the configured attempt limit, preserves identity/input,
+and rechecks both retry and original operation permissions. Completed jobs and
+active attempts cannot be explicitly retried. A permanent input/version error
+needs a corrected new submission, not repeated retries of the same command.
+
+Deleting a document removes its snapshots, fences pending/running jobs for that
+document, and clears their retained source payloads in the same transaction.
+Completed receipts/key fingerprints remain, with `result_available=false`, so
+replaying an old key does not restore deleted data. Pending and retryable failed
+jobs retain source content in the private database; successful jobs clear it.
+There is no automatic job/receipt retention cleanup in this increment. Backup,
+secure-erasure, and future external-index deletion remain separate concerns.
+
+### Runtime setup and limits
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `DOCUMENT_DB_PATH` | `var/documents.sqlite3` | Dedicated local document/job file |
+| `DOCUMENT_JOB_LEASE_SECONDS` | `180` | Attempt ownership; must exceed the worker's 150-second hard limit |
+| `DOCUMENT_JOB_MAX_ATTEMPTS` | `3` | Durable bound on processing attempts |
+| `DOCUMENT_MAX_REQUEST_BYTES` | `8100000` | Streamed body cap before JSON parsing |
+
+The command source limit remains 4,000,000 bytes and the prepared-text limit
+1,000,000 characters. Chunk count/output limits still apply. Encodings must be
+valid UTF-8. Malformed document validation errors are redacted, rather than
+echoing the source back in error details. Missing and other-tenant documents/jobs
+return 404, denied permissions 403, conflicts 409, input/resource errors 422,
+and database/publication availability failures 503. A synchronous failed job
+returns its redacted receipt with an appropriate failure status; async failure
+is observed through the job endpoint.
+
+API and workers must share the same local file. Compose mounts the existing
+shared `/app/var` volume and explicitly sets the document path in both services.
+For local background work, start Redis and a matching worker:
+`poetry run worker --tenant-id tenant_a`. Synchronous document operations need
+no Redis or model. The worker carries only job/tenant IDs in JSON messages,
+validates delivery ID and tenant queue, and rechecks server-owned grants. It
+ignores Celery result storage; status lives in SQLite independently of Redis TTL.
+Worker soft/hard limits are 120/150 seconds; attempts use no heartbeat and must
+commit within their lease. Reclaim is safe because processing has no external
+side effects and snapshot/outcome writes are fenced and atomic. Hard termination
+can leave a running record until its lease expires; use same-key re-publication
+or explicit retry after expiry. Synchronous processing is bounded by admission
+and lease checks, not a preemptive CPU timeout.
+
+SQLite remains a single-host implementation. Existing Kubernetes manifests do
+not provision shared document storage for multi-host operation; that requires a
+shared database adapter and deployment work. No live environment or private
+credentials are modified by this implementation.
+
+Architecture and failure flow: [Document lifecycle](docs/architecture/document-lifecycle.md).
+Tests use real temporary SQLite files, authenticated ASGI requests, and actual
+Celery delivery over an in-memory broker. They do not claim a new live Redis,
+container, Kubernetes, or production-load validation.
 
 ## Chunking module
 
