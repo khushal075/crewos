@@ -1431,6 +1431,17 @@ Plain-text submissions -----------------> DocumentInput validation
 
 Run the checks with `poetry run pytest tests/test_document_input.py tests/test_document_parser.py tests/test_document_preparation.py tests/test_text_chunk.py tests/test_ingestion_module.py -q`.
 
+## Ingestion source command
+
+`DocumentIngestionRequest` is an immutable in-process command for new document
+submissions. It requires raw `content` bytes (1 to 4,000,000), a bounded title,
+and an optional source label. It rejects tenant identity, permissions, document
+IDs, versions, and chunking settings. Shared title/source constraints are also
+used by `DocumentInput`. This command does not authenticate callers or expose
+an HTTP upload schema; authorized coordination is the next implementation step.
+
+Run `poetry run pytest tests/test_document_ingestion_request.py -q`.
+
 ## Stored-document boundary
 
 The public ingestion API now exports `StoredDocumentVersion` and

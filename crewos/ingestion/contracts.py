@@ -17,20 +17,30 @@ from pydantic import (
 )
 
 
+DocumentTitle = Annotated[
+    str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=256)
+]
+DocumentSourceReference = Annotated[
+    str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=2048)
+]
+
+
+class DocumentIngestionRequest(BaseModel):
+    """In-process source submission; tenant, IDs, and permissions are not inputs."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    content: bytes = Field(strict=True, min_length=1, max_length=4_000_000)
+    title: DocumentTitle
+    source_ref: DocumentSourceReference | None = None
+
+
 class DocumentInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    title: Annotated[
-        str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=256)
-    ]
+    title: DocumentTitle
     text: str = Field(strict=True, min_length=1, max_length=1_000_000)
-    source_ref: (
-        Annotated[
-            str,
-            StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=2048),
-        ]
-        | None
-    ) = None
+    source_ref: DocumentSourceReference | None = None
 
     @field_validator("text")
     @classmethod
