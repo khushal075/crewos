@@ -11,6 +11,7 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from crewos.ingestion.contracts import StoredDocumentVersion
+from crewos.ingestion.adapters.sqlite_document_jobs import SQLiteDocumentJobs
 from crewos.ingestion.document_store import (
     DocumentNotFound,
     DocumentStorageCorruption,
@@ -18,11 +19,18 @@ from crewos.ingestion.document_store import (
 )
 
 
-class SQLiteDocumentStore:
+class SQLiteDocumentStore(SQLiteDocumentJobs):
     APPLICATION_ID = 0x43524453
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
-    def __init__(self, path: str | Path, *, lock_timeout_seconds: float = 5):
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        lock_timeout_seconds: float = 5,
+        job_lease_seconds: float = 180,
+        job_max_attempts: int = 3,
+    ):
         if not str(path).strip() or str(path) == ":memory:":
             raise ValueError("A file-backed document database is required")
         if (
@@ -32,6 +40,16 @@ class SQLiteDocumentStore:
             or lock_timeout_seconds <= 0
         ):
             raise ValueError("Database lock timeout must be finite and positive")
+        if (
+            type(job_max_attempts) is not int
+            or job_max_attempts < 1
+            or isinstance(job_lease_seconds, bool)
+            or not isinstance(job_lease_seconds, (int, float))
+            or not isfinite(job_lease_seconds)
+            or job_lease_seconds <= 0
+        ):
+            raise ValueError("Invalid document job limits")
+        self.job_lease_seconds, self.job_max_attempts = job_lease_seconds, job_max_attempts
         self.path = Path(path)
         self.lock_timeout_seconds = lock_timeout_seconds
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -48,7 +66,7 @@ class SQLiteDocumentStore:
             ).fetchall()
             fresh = application_id == 0 and version == 0 and not tables
             if not fresh and (
-                application_id != self.APPLICATION_ID or version != self.SCHEMA_VERSION
+                application_id != self.APPLICATION_ID or version not in (1, self.SCHEMA_VERSION)
             ):
                 raise ValueError("Unsupported or unrelated document database")
             db.execute(
@@ -60,6 +78,7 @@ class SQLiteDocumentStore:
                 PRIMARY KEY(tenant_id, document_id, version)
                 )"""
             )
+            self._initialize_jobs(db)
             db.execute(f"PRAGMA application_id={self.APPLICATION_ID}")
             db.execute(f"PRAGMA user_version={self.SCHEMA_VERSION}")
         with self._connection() as db:
@@ -108,21 +127,24 @@ class SQLiteDocumentStore:
         # Round-trip deeply: frozen models can still be bypassed with model_copy
         # or model_construct; nested existing instances must not skip validation.
         record = StoredDocumentVersion.model_validate_json(record.model_dump_json())
-        identity = self._identity(record.tenant_id, record.document_id)
         with self._connection() as db:
             db.execute("BEGIN IMMEDIATE")
-            latest = db.execute(
-                "SELECT MAX(version) FROM document_versions WHERE tenant_id=? AND document_id=?",
-                identity,
-            ).fetchone()[0]
-            expected = (latest or 0) + 1
-            if record.version != expected:
-                raise DocumentVersionConflict("Document version is not the next revision")
-            db.execute(
-                "INSERT INTO document_versions(tenant_id,document_id,version,snapshot) VALUES(?,?,?,?)",
-                (*identity, record.version, record.model_dump_json()),
-            )
+            self._append(db, record)
         return record
+
+    def _append(self, db, record):
+        identity = self._identity(record.tenant_id, record.document_id)
+        latest = db.execute(
+            "SELECT MAX(version) FROM document_versions WHERE tenant_id=? AND document_id=?",
+            identity,
+        ).fetchone()[0]
+        expected = (latest or 0) + 1
+        if record.version != expected:
+            raise DocumentVersionConflict("Document version is not the next revision")
+        db.execute(
+            "INSERT INTO document_versions(tenant_id,document_id,version,snapshot) VALUES(?,?,?,?)",
+            (*identity, record.version, record.model_dump_json()),
+        )
 
     def get(
         self, *, tenant_id: str, document_id: UUID, version: int | None = None
@@ -154,3 +176,12 @@ class SQLiteDocumentStore:
             ).rowcount
             if not deleted:
                 raise DocumentNotFound("Document unavailable")
+            # Fence in-flight updates and remove retained source payloads. Completed
+            # receipts remain so the same idempotency key cannot recreate data.
+            db.execute(
+                """UPDATE document_jobs SET payload=NULL,
+                state=CASE WHEN state='succeeded' THEN state ELSE 'failed' END,
+                error=CASE WHEN state='succeeded' THEN error ELSE 'DocumentDeleted' END,
+                token=NULL,lease_until=NULL WHERE tenant=? AND document_id=?""",
+                identity,
+            )

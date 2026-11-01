@@ -10,6 +10,7 @@ from crewos.ingestion.document_processing_coordinator import DocumentProcessingC
 from crewos.ingestion.adapters.plain_text import PlainTextDocumentParser
 from crewos.ingestion.adapters.sqlite_document_store import SQLiteDocumentStore
 from crewos.ingestion.document_store import DocumentStoreInterface
+from crewos.ingestion.document_jobs import DocumentManagementStoreInterface
 from crewos.ingestion.service import DocumentPreparationService
 
 
@@ -22,10 +23,19 @@ def build_plain_text_preparation(
 
 
 def build_sqlite_document_store(
-    path: str | Path, *, lock_timeout_seconds: float = 5
-) -> DocumentStoreInterface:
+    path: str | Path,
+    *,
+    lock_timeout_seconds: float = 5,
+    job_lease_seconds: float = 180,
+    job_max_attempts: int = 3,
+) -> DocumentManagementStoreInterface:
     """Use a dedicated local file; no database is opened during package import."""
-    return SQLiteDocumentStore(path, lock_timeout_seconds=lock_timeout_seconds)
+    return SQLiteDocumentStore(
+        path,
+        lock_timeout_seconds=lock_timeout_seconds,
+        job_lease_seconds=job_lease_seconds,
+        job_max_attempts=job_max_attempts,
+    )
 
 
 def build_plain_text_ingestion_facade(

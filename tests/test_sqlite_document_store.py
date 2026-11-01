@@ -232,7 +232,7 @@ def test_refuses_unrelated_database_without_changing_its_tables(path):
 def test_refuses_future_schema_version(path):
     build_sqlite_document_store(path)
     with sqlite3.connect(path) as db:
-        db.execute("PRAGMA user_version=2")
+        db.execute("PRAGMA user_version=999")
     with pytest.raises(ValueError, match="Unsupported"):
         build_sqlite_document_store(path)
 

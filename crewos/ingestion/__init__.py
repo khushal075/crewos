@@ -9,7 +9,9 @@ from crewos.ingestion.contracts import (
     DocumentInput,
     DocumentIngestionRequest,
     DocumentUpdateRequest,
-    DocumentReadRequest, DocumentDeleteRequest, DocumentDeleted,
+    DocumentReadRequest,
+    DocumentDeleteRequest,
+    DocumentDeleted,
     StoredDocumentVersion,
     TextChunk,
 )
@@ -24,7 +26,17 @@ from crewos.ingestion.service import DocumentPreparationService
 from crewos.ingestion.document_ingestion_facade import DocumentIngestionFacade
 
 __all__ = [
-    "DocumentReadRequest", "DocumentDeleteRequest", "DocumentDeleted",
+    "DocumentReadRequest",
+    "DocumentDeleteRequest",
+    "DocumentDeleted",
+    "DocumentJob",
+    "DocumentSubmission",
+    "DocumentJobConflict",
+    "DocumentJobNotFound",
+    "DocumentJobStoreInterface",
+    "DocumentManagementStoreInterface",
+    "DocumentSubmissionFacade",
+    "process_document_job",
     "DocumentInput",
     "DocumentIngestionRequest",
     "DocumentUpdateRequest",
@@ -42,3 +54,14 @@ __all__ = [
     "DocumentPreparationService",
     "build_plain_text_preparation",
 ]
+
+from crewos.ingestion.document_jobs import (
+    DocumentJob,
+    DocumentSubmission,
+    DocumentJobConflict,
+    DocumentJobNotFound,
+    DocumentJobStoreInterface,
+    DocumentManagementStoreInterface,
+)
+from crewos.ingestion.document_submission_facade import DocumentSubmissionFacade
+from crewos.ingestion.document_job_processor import process_document_job
