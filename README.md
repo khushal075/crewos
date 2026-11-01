@@ -1486,6 +1486,27 @@ execution, and API wiring remain future steps. Tests compose the actual parser,
 chunker, and SQLite store and separately verify authorization and failure gates.
 Run `poetry run pytest tests/test_document_ingestion_request.py tests/test_document_ingestion_facade.py tests/test_document_processing_coordinator.py tests/test_ingestion_module.py -q`.
 
+## Document update request contract
+
+The public `DocumentUpdateRequest` reuses source-content and metadata validation
+from `DocumentIngestionRequest` and adds a UUID4 `document_id` and strict positive
+`expected_version`. It describes a full replacement: bytes and title are
+required, and an omitted source reference becomes `None`; old fields are not
+implicitly merged. Tenant identity, permissions, a chosen next version, and
+chunking configuration remain forbidden request fields.
+
+`expected_version` is the current revision the caller expects, not the revision
+to save. For example, expected version 3 means an authorized update should append
+version 4 only if the document is still at version 3. This is an optimistic
+concurrency precondition: stale edits must fail rather than silently overwrite
+newer work. An ID identifies a resource; it does not authorize access. The update
+operation must use trusted tenant scope and check `document.update`.
+
+This increment defines and tests the command only. The facade and processing
+coordinator still create new documents; no update method, permission wiring,
+concurrency enforcement for the update use case, or endpoint is added yet.
+Run `poetry run pytest tests/test_document_update_request.py -q`.
+
 ## Stored-document boundary
 
 The public ingestion API now exports `StoredDocumentVersion` and

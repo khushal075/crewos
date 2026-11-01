@@ -8,6 +8,7 @@ from crewos.ingestion.bootstrap import (
 from crewos.ingestion.contracts import (
     DocumentInput,
     DocumentIngestionRequest,
+    DocumentUpdateRequest,
     StoredDocumentVersion,
     TextChunk,
 )
@@ -24,6 +25,7 @@ from crewos.ingestion.document_ingestion_facade import DocumentIngestionFacade
 __all__ = [
     "DocumentInput",
     "DocumentIngestionRequest",
+    "DocumentUpdateRequest",
     "DocumentIngestionFacade",
     "build_plain_text_ingestion_facade",
     "StoredDocumentVersion",

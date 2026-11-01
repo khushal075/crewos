@@ -35,6 +35,18 @@ class DocumentIngestionRequest(BaseModel):
     source_ref: DocumentSourceReference | None = None
 
 
+class DocumentUpdateRequest(DocumentIngestionRequest):
+    """Full replacement source plus an optimistic-concurrency precondition.
+
+    The caller identifies a document, not its tenant or next version. The future
+    authorized update operation must scope lookup by trusted tenant and append
+    only when the latest stored version equals expected_version.
+    """
+
+    document_id: UUID4
+    expected_version: int = Field(strict=True, ge=1)
+
+
 class DocumentInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
