@@ -24,7 +24,10 @@ class TaskOwnershipStore:
             raise RuntimeError("Task identifier already registered")
 
     def require_owner(self, task_id, tenant_id):
-        owner = self.client.get(self.key(task_id))
+        from crewos.infrastructure.tool_io import ownership_client
+
+        with ownership_client(self.client) as client:
+            owner = client.get(self.key(task_id))
         if owner != tenant_id:
             raise HTTPException(404, "Task not found")
 

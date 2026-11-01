@@ -19,6 +19,8 @@ from crewos.infrastructure.logging import get_logger
 from crewos.infrastructure.celery_app import celery_app
 from crewos.infrastructure.task_ownership import TaskOwnershipStore
 from crewos.infrastructure.task_state import map_celery_state
+from crewos.infrastructure.tool_io import bounded_result
+from contextlib import nullcontext
 
 
 logger = get_logger("crewos.task_status")
@@ -31,6 +33,7 @@ class CeleryTaskStatusReader(TaskStatusReaderInterface):
         result_factory: Callable[[str], AsyncResult] | None = None,
         event_logger: logging.Logger | None = None,
     ):
+        self._custom_result_factory = result_factory is not None
         self._ownership_store = ownership_store
         self._logger = event_logger if event_logger is not None else logger
         self._result_factory = (
@@ -73,12 +76,17 @@ class CeleryTaskStatusReader(TaskStatusReaderInterface):
                 }
             )
             phase = "backend"
-            result = self._result_factory(agent_task_id)
-            response = AgentTaskFound(
-                outcome=TaskLookupOutcome.FOUND,
-                agent_task_id=agent_task_id,
-                status=map_celery_state(result.state),
+            scope = (
+                nullcontext(self._result_factory(agent_task_id))
+                if self._custom_result_factory
+                else bounded_result(agent_task_id, AsyncResult)
             )
+            with scope as result:
+                response = AgentTaskFound(
+                    outcome=TaskLookupOutcome.FOUND,
+                    agent_task_id=agent_task_id,
+                    status=map_celery_state(result.state),
+                )
             self._logger.info(
                 {
                     "event": "task_status_read_completed",
