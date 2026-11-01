@@ -109,3 +109,56 @@ def test_invalid_cli_arguments_stop_before_dependencies(demo, extra):
     assert error.value.code == 2
     provider.assert_not_called()
     backend.assert_not_called()
+
+
+@pytest.fixture
+def isolated_metrics(monkeypatch):
+    from crewos.infrastructure.agent_metrics import PrometheusAgentMetrics
+
+    metrics = PrometheusAgentMetrics()
+    monkeypatch.setattr("crewos.core.agent_demo.agent_metrics", metrics)
+    monkeypatch.setattr("crewos.core.agent_setup.agent_metrics", metrics)
+    return metrics
+
+
+def test_metrics_snapshot_records_success_without_sensitive_fields(
+    demo, isolated_metrics, tmp_path
+):
+    path = tmp_path / "metrics.prom"
+    assert main(ARGS + ["--metrics-file", str(path)]) == 0
+    text = path.read_text()
+    assert 'crewos_agent_operations_total{operation="run",outcome="success"} 1.0' in text
+    assert 'crewos_agent_operations_total{operation="tool",outcome="success"} 1.0' in text
+    for secret in ("test-token", "task-123", "tenant_a", "The task is running"):
+        assert secret not in text
+
+
+def test_metrics_snapshot_is_saved_after_agent_failure(demo, isolated_metrics, tmp_path):
+    _, model, _ = demo
+    model.invoke.side_effect = RuntimeError("private failure")
+    path = tmp_path / "failed.prom"
+    assert main(ARGS + ["--metrics-file", str(path)]) == 1
+    assert 'crewos_agent_operations_total{operation="run",outcome="error"} 1.0' in path.read_text()
+
+
+def test_authentication_failure_does_not_write_a_snapshot(
+    demo, isolated_metrics, monkeypatch, tmp_path
+):
+    monkeypatch.setenv("CREWOS_TENANT_TOKEN", "wrong")
+    path = tmp_path / "metrics.prom"
+    assert main(ARGS + ["--metrics-file", str(path)]) == 2
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("agent_fails", [False, True])
+def test_snapshot_write_failure_preserves_agent_exit_code(
+    demo, isolated_metrics, tmp_path, capsys, agent_fails
+):
+    if agent_fails:
+        demo[1].invoke.side_effect = RuntimeError("private failure")
+    path = tmp_path / "absent-directory" / "metrics.prom"
+    assert main(ARGS + ["--metrics-file", str(path)]) == (1 if agent_fails else 0)
+    captured = capsys.readouterr()
+    assert "Metrics snapshot failed (FileNotFoundError)." in captured.err
+    assert "private failure" not in captured.err
+    assert not path.exists()

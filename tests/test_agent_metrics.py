@@ -102,3 +102,30 @@ def test_independent_collectors_do_not_share_counts():
     assert sample(first, "run", "success") == 1
     assert sample(second, "run", "success") is None
     assert sample(first, "run", "success", "sum") == 1.5
+
+
+def test_snapshot_replaces_existing_file_atomically_and_cleans_temporary_file(tmp_path):
+    from crewos.infrastructure.agent_metrics import write_metrics_snapshot
+
+    metrics = PrometheusAgentMetrics()
+    metrics.observe(operation="run", outcome="success", duration_seconds=1)
+    path = tmp_path / "metrics.prom"
+    path.write_text("old snapshot")
+    write_metrics_snapshot(path, metrics)
+    assert path.read_bytes() == metrics.render()
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def test_failed_snapshot_replacement_preserves_previous_file(tmp_path):
+    from unittest.mock import patch
+    from crewos.infrastructure.agent_metrics import write_metrics_snapshot
+
+    path = tmp_path / "metrics.prom"
+    path.write_text("old snapshot")
+    with patch(
+        "crewos.infrastructure.agent_metrics.os.replace", side_effect=OSError("private error")
+    ):
+        with pytest.raises(OSError):
+            write_metrics_snapshot(path, PrometheusAgentMetrics())
+    assert path.read_text() == "old snapshot"
+    assert list(tmp_path.iterdir()) == [path]

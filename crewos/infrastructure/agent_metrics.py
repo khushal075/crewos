@@ -1,6 +1,9 @@
 """Process-local Prometheus counters and duration histograms."""
 
 from math import isfinite
+from pathlib import Path
+import os
+import tempfile
 
 from prometheus_client import CollectorRegistry, Counter, Histogram, generate_latest
 
@@ -39,6 +42,26 @@ class PrometheusAgentMetrics:
     def render(self) -> bytes:
         """Snapshot in Prometheus exposition format; no network server is started."""
         return generate_latest(self.registry)
+
+
+def write_metrics_snapshot(path: str | Path, metrics: PrometheusAgentMetrics) -> None:
+    """Atomically replace a local snapshot; the parent directory must exist."""
+    destination = Path(path)
+    data = metrics.render()
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=destination.parent,
+            prefix=".crewos-metrics-",
+            delete=False,
+        ) as output:
+            temporary = Path(output.name)
+            output.write(data)
+        os.replace(temporary, destination)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 agent_metrics = PrometheusAgentMetrics()
