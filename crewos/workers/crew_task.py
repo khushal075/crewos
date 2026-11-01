@@ -15,6 +15,7 @@ logger = get_logger(__name__)
 @celery_app.task(
     name="crewos.workers.crew_task.run_crew",
     bind=True,
+    resultrepr_maxsize=0,
     max_retries=settings.LLM_MAX_RETRIES,
 )
 def run_crew(self, tenant_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:

@@ -12,6 +12,7 @@ logger = get_logger(__name__)
 @celery_app.task(
     name="crewos.workers.agent_task.run_agent",
     bind=True,
+    resultrepr_maxsize=0,
     max_retries=0,
     autoretry_for=(),
 )

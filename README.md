@@ -1208,6 +1208,14 @@ Missing credentials return 401 (with required tenant header supplied); invalid c
 
 Tests cover HTTP authentication, policy, registration-before-publication, correct payload/routing, forged fields, storage failure, ambiguous publication, and route inclusion with a controlled publisher. These are not real broker or live-model tests. Actual queued agent delivery and worker-process metrics export remain the next integration checks.
 
+## Celery success-log result privacy
+
+Both registered workflow tasks set Celery's `resultrepr_maxsize=0`. Celery still emits its normal task-success line with task identity and duration, but its formatted return-value representation is truncated without generated output content. Punctuation or an omission marker may remain; this setting is not a replacement for the result itself. JSON results continue to be stored normally and returned through ownership-checked polling.
+
+A regression test executes Celery's actual success tracer for the agent task with an in-memory result backend: it verifies the success event exists, the private answer is absent from captured logs, and the complete answer remains available in the backend. A separate check covers the fixed-workflow task's configuration and result representation. No live broker is required by these tests. Restart workers to load the changed task options.
+
+This protects Celery's successful return-value representation only. It does not redact request arguments, exception messages/tracebacks, provider logs, explicitly printed CLI answers, or stored backend results. Failure-path logging and infrastructure retention/access controls still require their own review.
+
 ## Implemented versus planned
 
 | Area | Current state |
