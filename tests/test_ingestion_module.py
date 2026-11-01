@@ -94,7 +94,7 @@ def test_other_modules_use_the_public_ingestion_boundary():
 
 def test_ingestion_core_does_not_import_adapters_or_other_platform_modules():
     root = Path(__file__).resolve().parents[1] / "crewos" / "ingestion"
-    allowed = {"crewos.ingestion.contracts", "crewos.ingestion.ports"}
+    allowed = {"crewos.ingestion.contracts", "crewos.ingestion.ports", "crewos.chunking"}
     violations = []
     for filename in ("contracts.py", "ports.py", "service.py"):
         for module, level, names in imports(root / filename):

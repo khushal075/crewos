@@ -1,6 +1,8 @@
-"""Ingestion-owned document and transient chunk contracts; content remains untrusted."""
+"""Ingestion-owned document input; content remains untrusted."""
 
-from typing import Annotated, Self
+from typing import Annotated
+
+from crewos.chunking import TextChunk  # Compatibility re-export.
 
 from pydantic import (
     BaseModel,
@@ -8,7 +10,6 @@ from pydantic import (
     Field,
     StringConstraints,
     field_validator,
-    model_validator,
 )
 
 
@@ -33,18 +34,3 @@ class DocumentInput(BaseModel):
         if not value.strip():
             raise ValueError("Document text must contain non-whitespace characters")
         return value
-
-
-class TextChunk(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    index: int = Field(strict=True, ge=0)
-    text: str = Field(strict=True, min_length=1, max_length=1_000_000)
-    start_char: int = Field(strict=True, ge=0, lt=1_000_000)
-    end_char: int = Field(strict=True, gt=0, le=1_000_000)
-
-    @model_validator(mode="after")
-    def validate_span(self) -> Self:
-        if self.end_char - self.start_char != len(self.text):
-            raise ValueError("Chunk span must match its text length")
-        return self

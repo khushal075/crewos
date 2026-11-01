@@ -1319,13 +1319,13 @@ The built worker image also consumed a real Redis task and completed two HTTP ca
 
 Ingestion is a module within the existing application, not a separately deployed
 microservice. Callers use the public `crewos.ingestion` package; implementations
-remain inside the module. Parsing and chunking belong to ingestion, while their
-strategies remain separate responsibilities. Current layout:
+remain inside the module. Ingestion owns parsing and preparation; splitting is now delegated to the
+separate public `crewos.chunking` module. Current layout:
 
 ```text
 crewos/ingestion/
   __init__.py             public contracts, ports, service, and setup function
-  contracts.py            DocumentInput and TextChunk
+  contracts.py            DocumentInput and compatibility TextChunk export
   ports.py                parser interface and shared parse error
   service.py              preparation orchestration
   bootstrap.py            wires the supported plain-text strategy
@@ -1341,7 +1341,7 @@ Earlier document-related import paths remain thin compatibility re-exports;
 there is one implementation of each contract and behavior.
 
 This is the initial module boundary. An authenticated ingestion use case,
-storage port, chunker port/strategy, document versioning, ingestion queue, and
+storage port, automatic chunking integration, document versioning, ingestion queue, and
 retrieval/indexing integration remain planned. Existing API routes and Celery
 workers are not connected to preparation yet. Separate worker processes can
 later execute this module without introducing a network service boundary.
@@ -1359,8 +1359,8 @@ correctness, or grant access. Client-supplied tenant identity, document IDs, and
 permissions are rejected. A later ingestion use case must obtain tenant identity
 from authenticated context and assign document identity on the backend.
 Validation does not make document content trusted instructions or prevent prompt
-injection. There is no ingestion endpoint, persistence, chunking, embeddings,
-or search yet.
+injection. There is no ingestion endpoint, persistence, embeddings, or search
+yet. Chunking is available separately through `crewos.chunking`.
 
 Text extraction uses an application-owned `DocumentParserInterface`
 (`crewos/ingestion/ports.py`). Its `parse(content: bytes)
@@ -1401,7 +1401,7 @@ document = service.prepare(
 )
 ```
 
-`TextChunk` in `crewos/ingestion/contracts.py` defines the next
+`TextChunk` in `crewos/chunking/contracts.py` defines the chunk
 boundary: a transient segment with a zero-based `index`, exact `text`, and
 `start_char`/`end_char` offsets into the prepared document string. The end is
 exclusive, matching Python slicing: `document.text[start_char:end_char]`.
@@ -1409,13 +1409,13 @@ Offsets count Python Unicode code points, not UTF-8 bytes, model tokens, or
 visual characters. The contract requires nonempty text and a span matching its
 length, within the current document character limit. It preserves whitespace,
 including whitespace-only segments. Given only a chunk, validation cannot prove
-its text matches the source or that a sequence covers the document; the future
-chunker must establish those invariants against the source.
+its text matches the source or that a sequence covers the document; the chunking
+service checks those invariants against the source.
 
 This is an in-memory chunk contract, not a stored retrieval record. Tenant,
 document identity/version, and chunking configuration will need to be attached
-by the authenticated ingestion/storage flow before indexing. No splitting
-algorithm or chunk storage is implemented yet.
+by the authenticated ingestion/storage flow before indexing. No chunk
+storage is implemented yet. The character-window algorithm is described below.
 
 The implemented preparation and planned ingestion flow is:
 
@@ -1424,10 +1424,66 @@ Already-loaded bytes -> injected parser -> DocumentInput validation
 Plain-text submissions -----------------> DocumentInput validation
                                          -> authenticated ingestion use case (planned)
                                          -> tenant-scoped storage (planned)
-                                         -> chunking -> indexing -> authorized retrieval (planned)
+                                         -> chunking (implemented separately) -> indexing -> authorized retrieval (planned)
 ```
 
 Run the checks with `poetry run pytest tests/test_document_input.py tests/test_document_parser.py tests/test_document_preparation.py tests/test_text_chunk.py tests/test_ingestion_module.py -q`.
+
+## Chunking module
+
+`crewos.chunking` is a stateless module within the monolith. It owns `TextChunk`,
+`ChunkingOptions`, `ChunkingRequest`, `ChunkingResult`, the `ChunkerInterface`
+strategy port, and `ChunkingService`. Existing ingestion and application chunk
+imports remain compatible re-exports. Callers use the public package rather
+than importing its implementation files.
+
+```python
+from crewos.ingestion import build_plain_text_preparation
+from crewos.chunking import ChunkingOptions, ChunkingRequest, build_character_chunking
+
+document = build_plain_text_preparation().prepare(
+    content=b"Check logs. Retry later.", title="CRM recovery"
+)
+result = build_character_chunking().chunk(ChunkingRequest(
+    text=document.text,
+    options=ChunkingOptions(chunk_size=10, overlap=2),
+))
+# Character spans: [0:10], [8:18], [16:24]
+```
+
+`character_window_v1` splits at fixed Python character positions. Defaults are
+1,000 characters per chunk and 100 characters of overlap; overlap must be
+nonnegative and smaller than the window. The first window starts at zero and
+the final window stops at the end of the source without an extra trailing
+window after full coverage. Formatting is preserved, including whitespace-only
+windows. Results record the strategy name, options, and boundary schema version
+so callers can serialize them to JSON and identify the splitting behavior.
+
+Server-side defaults limit output to 1,000 chunks and 2,000,000 total characters
+including repeated overlap. The built-in strategy calculates both totals before
+allocating chunks and rejects excessive expansion with `ChunkingLimitExceeded`.
+A document within the input size limit can still exceed the output limit,
+particularly with small windows or large overlap. The service also verifies
+returned source slices, sequence indices, complete coverage, and output limits
+for injected strategies. Strategies themselves must honor pre-allocation limits.
+
+Character boundaries can split words, sentences, or visually combined Unicode
+characters; character counts do not establish model-token limits. This initial
+strategy is a deterministic baseline, not evidence of optimal retrieval quality.
+Paragraph/token-aware alternatives and retrieval evaluation remain future work.
+
+The module imports no ingestion, authentication, storage, worker, or model-provider
+code. It can be called in-process today. A future HTTP or messaging adapter can
+wrap its request/result boundary for separate deployment; no standalone network
+service, Docker image, or service deployment is implemented in this increment.
+A deployed wrapper must enforce authentication, permissions, payload limits
+before buffering, timeouts, concurrency/rate limits, and operational telemetry.
+Tenant/document identity and versioning belong in the authenticated ingestion
+flow; text offsets alone do not authorize access or make safe citations.
+
+See [Chunking architecture](docs/architecture/chunking.md) for module boundaries,
+request flow, and the extraction path. Run checks with
+`poetry run pytest tests/test_chunking.py tests/test_text_chunk.py tests/test_ingestion_module.py -q`.
 
 ## Contributing and documentation
 
