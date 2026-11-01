@@ -3,12 +3,12 @@
 import pytest
 from pydantic import ValidationError
 
-from crewos.application.dtos.document_input import DocumentInput
-from crewos.application.interfaces.document_parser import (
+from crewos.ingestion import DocumentInput
+from crewos.ingestion import (
     DocumentParseError,
     DocumentParserInterface,
 )
-from crewos.infrastructure.plain_text_document_parser import PlainTextDocumentParser
+from crewos.ingestion.adapters.plain_text import PlainTextDocumentParser
 
 
 def validate_document(parser: DocumentParserInterface, content: bytes) -> DocumentInput:

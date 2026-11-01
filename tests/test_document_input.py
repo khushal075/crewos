@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from crewos.application.dtos.document_input import DocumentInput
+from crewos.ingestion import DocumentInput
 
 
 def test_preserves_text_formatting_and_round_trips():

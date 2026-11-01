@@ -1,21 +1,5 @@
-"""Prepare untrusted document content using an injected parsing strategy."""
+"""Compatibility import; implementation is owned by crewos.ingestion."""
 
-from crewos.application.dtos.document_input import DocumentInput
-from crewos.application.interfaces.document_parser import DocumentParserInterface
+from crewos.ingestion import DocumentPreparationService
 
-
-class DocumentPreparationService:
-    def __init__(self, parser: DocumentParserInterface):
-        self._parser = parser
-
-    def prepare(
-        self, *, content: bytes, title: str, source_ref: str | None = None
-    ) -> DocumentInput:
-        """Extract and validate content; parser and validation failures propagate.
-
-        This is a preparation step, not an authorized ingestion endpoint: it
-        assigns no document or tenant identity and persists nothing. Source
-        references remain labels and document content remains untrusted.
-        """
-        text = self._parser.parse(content)
-        return DocumentInput(title=title, text=text, source_ref=source_ref)
+__all__ = ["DocumentPreparationService"]

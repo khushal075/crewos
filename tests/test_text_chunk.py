@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from crewos.application.dtos.text_chunk import TextChunk
+from crewos.ingestion import TextChunk
 
 
 def test_chunk_uses_zero_based_index_and_exclusive_end():

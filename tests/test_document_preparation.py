@@ -5,12 +5,12 @@ from unittest.mock import Mock
 import pytest
 from pydantic import ValidationError
 
-from crewos.application.interfaces.document_parser import (
+from crewos.ingestion import (
     DocumentParseError,
     DocumentParserInterface,
 )
-from crewos.application.services.document_preparation import DocumentPreparationService
-from crewos.infrastructure.plain_text_document_parser import PlainTextDocumentParser
+from crewos.ingestion import DocumentPreparationService
+from crewos.ingestion.adapters.plain_text import PlainTextDocumentParser
 
 
 def test_prepares_utf8_runbook_preserving_text_and_source_reference():

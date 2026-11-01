@@ -1317,8 +1317,37 @@ The built worker image also consumed a real Redis task and completed two HTTP ca
 
 ## Document ingestion foundation
 
+Ingestion is a module within the existing application, not a separately deployed
+microservice. Callers use the public `crewos.ingestion` package; implementations
+remain inside the module. Parsing and chunking belong to ingestion, while their
+strategies remain separate responsibilities. Current layout:
+
+```text
+crewos/ingestion/
+  __init__.py             public contracts, ports, service, and setup function
+  contracts.py            DocumentInput and TextChunk
+  ports.py                parser interface and shared parse error
+  service.py              preparation orchestration
+  bootstrap.py            wires the supported plain-text strategy
+  adapters/plain_text.py  UTF-8 extraction implementation
+```
+
+`build_plain_text_preparation()` is the composition root: the setup function that
+constructs the concrete parser and injects it into the preparation service.
+Alternatively, callers can inject an implementation of the public parser port
+into `DocumentPreparationService`. Other modules must not import the private
+adapter or implementation files. An architecture test checks this boundary.
+Earlier document-related import paths remain thin compatibility re-exports;
+there is one implementation of each contract and behavior.
+
+This is the initial module boundary. An authenticated ingestion use case,
+storage port, chunker port/strategy, document versioning, ingestion queue, and
+retrieval/indexing integration remain planned. Existing API routes and Celery
+workers are not connected to preparation yet. Separate worker processes can
+later execute this module without introducing a network service boundary.
+
 The first ingestion increment is `DocumentInput` in
-`crewos/application/dtos/document_input.py`. It validates an untrusted plain-text
+`crewos/ingestion/contracts.py`. It validates an untrusted plain-text
 submission: a required title (up to 256 characters), required text (up to
 1,000,000 characters), and an optional source reference (up to 2,048 characters).
 These are character limits, not byte or model-token limits. Text must contain
@@ -1334,7 +1363,7 @@ injection. There is no ingestion endpoint, persistence, chunking, embeddings,
 or search yet.
 
 Text extraction uses an application-owned `DocumentParserInterface`
-(`crewos/application/interfaces/document_parser.py`). Its `parse(content: bytes)
+(`crewos/ingestion/ports.py`). Its `parse(content: bytes)
 -> str` boundary accepts already-loaded bytes and returns untrusted text for
 `DocumentInput` validation. This is a port-and-adapter boundary: callers can
 receive a parser through dependency injection, while format-specific decoding
@@ -1353,7 +1382,7 @@ Future complex parsers will need format-specific extraction, output, and time
 limits; the interface itself does not provide these guarantees.
 
 `DocumentPreparationService` in
-`crewos/application/services/document_preparation.py` now composes extraction and
+`crewos/ingestion/service.py` now composes extraction and
 validation. It receives a `DocumentParserInterface` through its constructor
 (dependency injection) and uses that interchangeable parser as a Strategy. Its
 `prepare(content=..., title=..., source_ref=...)` method returns `DocumentInput`;
@@ -1362,10 +1391,9 @@ no concrete parser and assigns no tenant/document identity or persistence.
 It is a preparation component, not the complete ingestion use case.
 
 ```python
-from crewos.application.services.document_preparation import DocumentPreparationService
-from crewos.infrastructure.plain_text_document_parser import PlainTextDocumentParser
+from crewos.ingestion import build_plain_text_preparation
 
-service = DocumentPreparationService(parser=PlainTextDocumentParser())
+service = build_plain_text_preparation()
 document = service.prepare(
     content=b"Check CRM delivery logs before retrying.",
     title="CRM recovery runbook",
@@ -1373,7 +1401,7 @@ document = service.prepare(
 )
 ```
 
-`TextChunk` in `crewos/application/dtos/text_chunk.py` defines the next
+`TextChunk` in `crewos/ingestion/contracts.py` defines the next
 boundary: a transient segment with a zero-based `index`, exact `text`, and
 `start_char`/`end_char` offsets into the prepared document string. The end is
 exclusive, matching Python slicing: `document.text[start_char:end_char]`.
@@ -1399,7 +1427,7 @@ Plain-text submissions -----------------> DocumentInput validation
                                          -> chunking -> indexing -> authorized retrieval (planned)
 ```
 
-Run the checks with `poetry run pytest tests/test_document_input.py tests/test_document_parser.py tests/test_document_preparation.py tests/test_text_chunk.py -q`.
+Run the checks with `poetry run pytest tests/test_document_input.py tests/test_document_parser.py tests/test_document_preparation.py tests/test_text_chunk.py tests/test_ingestion_module.py -q`.
 
 ## Contributing and documentation
 
