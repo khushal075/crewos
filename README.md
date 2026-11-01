@@ -1150,6 +1150,26 @@ This ID is correlation metadata only. Accepting it does not establish a run's ex
 
 Tests verify backend-assigned UUID preservation, string transport compatibility, policy-event correlation, invalid-ID rejection before side effects, and continued automatic IDs for independent invocations.
 
+## Worker-side agent job runner (transport pending)
+
+`execute_agent_job(payload)` in `crewos/core/agent_job_runner.py` validates `AgentRunJob`, checks the existing ownership store for the job's run ID and tenant, then builds context from worker-loaded server permission configuration. Only after ownership succeeds does it construct the configured model, tenant-scoped reader, and assembled loop. The loop receives the job's decision budget and run ID. The function returns `FinalAnswerDecision`; no Celery task or public endpoint invokes it yet.
+
+```text
+Queue payload -> Validate contract -> Verify registered run ownership
+                                               |
+                               Build server-configured context
+                                               |
+                               Model + Reader -> Agent loop
+                                               |
+                                  Typed final-answer proposal
+```
+
+Run ownership authorizes the job's tenant association, not access to every tool target. Each tool still evaluates its action permission and checks target resource ownership independently. Missing grants can allow a model decision request but block protected tool execution; they are not a separate blanket prohibition on inference. No submission-time permission list is accepted. Configuration is loaded by each process, so this is not instant centralized revocation. The runner restores the previous tenant ContextVar scope on normal return or error.
+
+Missing/cross-tenant run registration, malformed jobs, and ownership storage errors stop before model construction. Execution errors propagate; the runner adds no retry policy and no external-action replay guarantees. Restricted broker publishers and explicit Celery transport checks remain necessary. Registration is reused from the existing bounded ownership store; it is not a durable agent-run history or checkpoint system.
+
+Tests execute the real adapter/loop/dispatcher/policy/reader with controlled model/backend responses and in-memory ownership. They verify submission ID correlation, scope restoration, ownership-before-inference, worker-loaded grants, rejected payload grants, decision budgets, and separate ownership checks for the tool's target task. They do not demonstrate broker delivery or live queued agent execution.
+
 ## Implemented versus planned
 
 | Area | Current state |
@@ -1176,7 +1196,7 @@ Tests verify backend-assigned UUID preservation, string transport compatibility,
 | Text-JSON decision adapter | Implemented with controlled-response tests; live-model and entrypoint integration pending |
 | Agent loop assembly | Adapter and protected dispatcher connected by setup factory; controlled integration tests only |
 | Local CLI demo | Authenticated entry point implemented and tested with controlled dependencies; live-run evidence pending |
-| Queued agent-job contract | Backend-owned payload shape implemented; submission, worker verification, and queued run correlation pending |
+| Queued agent-job contract | Payload and worker-side verification/runner implemented; Celery delivery and submission integration pending |
 | Dynamic model-chosen tool calls | One successful local tool-choice path observed; broader evaluation pending |
 | Bounded observation/action agent loop | Sequential loop implemented and tested with scripted decisions; real-provider and entrypoint integration pending |
 | Durable run state, checkpoints, and resume | Planned |
