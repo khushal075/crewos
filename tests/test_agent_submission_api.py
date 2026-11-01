@@ -14,6 +14,7 @@ from crewos.core.config import settings
 from crewos.core.tenant import tenant_queue
 from crewos.infrastructure.task_ownership import TaskOwnershipStore, get_task_store
 from tests.helpers import MemoryRedis
+from crewos.infrastructure.run_store import SQLiteRunStore, get_run_store
 
 
 def headers(token="test-a"):
@@ -21,7 +22,7 @@ def headers(token="test-a"):
 
 
 @pytest.fixture
-def setup(monkeypatch):
+def setup(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "TENANT_API_KEYS", {"tenant_a": SecretStr("test-a")})
     monkeypatch.setattr(
         settings, "TENANT_PERMISSIONS", {"tenant_a": frozenset({"agent_run.create"})}
@@ -30,6 +31,8 @@ def setup(monkeypatch):
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_task_store] = lambda: store
+    durable = SQLiteRunStore(str(tmp_path / "runs.sqlite3"))
+    app.dependency_overrides[get_run_store] = lambda: durable
     with patch("crewos.api.agent_routes.run_agent.apply_async") as publish:
         yield TestClient(app), store, publish
 

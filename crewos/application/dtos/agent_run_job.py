@@ -10,5 +10,5 @@ class AgentRunJob(BaseModel):
 
     agent_run_id: UUID4
     tenant_id: str = Field(strict=True, pattern=r"^[A-Za-z0-9_-]{1,64}$")
-    message: NonBlankText
+    message: NonBlankText = Field(max_length=32768)
     max_decisions: int = Field(default=5, strict=True, ge=1)
