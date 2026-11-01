@@ -1373,6 +1373,22 @@ document = service.prepare(
 )
 ```
 
+`TextChunk` in `crewos/application/dtos/text_chunk.py` defines the next
+boundary: a transient segment with a zero-based `index`, exact `text`, and
+`start_char`/`end_char` offsets into the prepared document string. The end is
+exclusive, matching Python slicing: `document.text[start_char:end_char]`.
+Offsets count Python Unicode code points, not UTF-8 bytes, model tokens, or
+visual characters. The contract requires nonempty text and a span matching its
+length, within the current document character limit. It preserves whitespace,
+including whitespace-only segments. Given only a chunk, validation cannot prove
+its text matches the source or that a sequence covers the document; the future
+chunker must establish those invariants against the source.
+
+This is an in-memory chunk contract, not a stored retrieval record. Tenant,
+document identity/version, and chunking configuration will need to be attached
+by the authenticated ingestion/storage flow before indexing. No splitting
+algorithm or chunk storage is implemented yet.
+
 The implemented preparation and planned ingestion flow is:
 
 ```text
@@ -1383,7 +1399,7 @@ Plain-text submissions -----------------> DocumentInput validation
                                          -> chunking -> indexing -> authorized retrieval (planned)
 ```
 
-Run the checks with `poetry run pytest tests/test_document_input.py tests/test_document_parser.py tests/test_document_preparation.py -q`.
+Run the checks with `poetry run pytest tests/test_document_input.py tests/test_document_parser.py tests/test_document_preparation.py tests/test_text_chunk.py -q`.
 
 ## Contributing and documentation
 
