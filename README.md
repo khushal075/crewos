@@ -1216,6 +1216,14 @@ A regression test executes Celery's actual success tracer for the agent task wit
 
 This protects Celery's successful return-value representation only. It does not redact request arguments, exception messages/tracebacks, provider logs, explicitly printed CLI answers, or stored backend results. Failure-path logging and infrastructure retention/access controls still require their own review.
 
+## Celery trace failure-log privacy
+
+`CrewTaskFailurePrivacyFilter` in `crewos/infrastructure/celery_log_privacy.py` is installed idempotently on `celery.app.trace` when the Celery application loads. It targets structured failure records for CrewOS's registered agent/fixed-workflow task names. Before handlers format those records it replaces exception text, argument/keyword representations, traceback data, and cached exception/stack text with a task-identity/error-class summary. Original severity is retained. Expected failures without traceback type information use `TaskError` rather than parsing untrusted exception text. Unrelated task names and nonfailure records pass through unchanged.
+
+The filter changes logging records only: task exceptions still propagate, failure state is stored normally, and backend failure data may retain the original exception/traceback. The existing ownership-checked HTTP polling path returns its generic failure response rather than the raw exception. Backend access controls and retention remain necessary. This is not universal redaction of Celery events, remote monitoring payloads, broker messages, provider logs, or other logger paths. Task identity remains in the failure summary; task publishers must remain trusted. Worker restart is required to load the filter, and third-party logging reconfiguration must preserve it.
+
+Regression tests run Celery's actual failure tracer for both task types with a controlled in-memory backend. They verify safe failure logs, preserved error classification/identity, unchanged backend failures, expected-error handling, unrelated-record behavior, and repeated installation without duplicate filters. No live fault was injected into the user's worker for this verification.
+
 ## Implemented versus planned
 
 | Area | Current state |

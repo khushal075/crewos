@@ -1,5 +1,8 @@
 from celery import Celery
 from crewos.core.config import settings
+from crewos.infrastructure.celery_log_privacy import install_celery_failure_privacy
+
+install_celery_failure_privacy()
 
 celery_app = Celery(
     "crewai",
