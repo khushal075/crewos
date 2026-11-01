@@ -14,8 +14,12 @@ class DocumentVersionConflict(RuntimeError):
     """Version already exists or is not the next sequential version."""
 
 
+class DocumentStorageCorruption(RuntimeError):
+    """Persisted snapshot is invalid or does not match its indexed identity."""
+
+
 class DocumentStoreInterface(Protocol):
-    """Storage contract; no implementation is supplied in this increment.
+    """Tenant-scoped immutable snapshot storage contract.
 
     Calls originate from authorized application code. Storage must additionally
     scope all operations by tenant. Database transactions must make version and

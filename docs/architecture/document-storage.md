@@ -1,8 +1,8 @@
 # Document version and storage contract
 
-This increment defines a validated snapshot and a storage interface in
-`crewos/ingestion/document_store.py`. It does not
-implement persistence or expose an ingestion endpoint.
+The validated snapshot and storage interface are implemented by a single-host
+SQLite adapter. There is no authorized ingestion coordinator or ingestion
+endpoint connected to storage yet.
 
 ```mermaid
 flowchart LR
@@ -12,7 +12,7 @@ flowchart LR
     Auth --> Identity[Backend tenant scope, document ID and version]
     Identity --> Snapshot
     Snapshot --> Interface[DocumentStoreInterface]
-    Interface --> DB[Future transactional storage adapter]
+    Interface --> DB[SQLiteDocumentStore: transactional snapshots]
 ```
 
 ## Identity and versions
@@ -31,15 +31,15 @@ There is no content-hash deduplication or automatic version allocation yet.
 `StoredDocumentVersion` rejects empty, incomplete, out-of-order, or source-mismatched
 chunk sets. It does not establish that the caller may write for the supplied
 tenant, that a document is factually correct, or that a revision is next in a
-database. Trusted application code and the future storage adapter must enforce
-those separate responsibilities.
+database. Trusted application code must enforce authorization. The SQLite adapter
+enforces scoped access and sequential writes within its transactions.
 
 ## Required storage semantics
 
 - Writes atomically append text, metadata, and chunks; existing snapshots are
   never overwritten. Versions start at 1 and advance by one per tenant/document.
 - Concurrent appends for the same next version must have one winner; the other
-  receives `DocumentVersionConflict`. This requires transactional adapter logic.
+  receives `DocumentVersionConflict`. The SQLite adapter uses a serialized write transaction for this check.
 - Every lookup/delete includes tenant scope. Missing and other-tenant records
   both produce `DocumentNotFound`; an identifier alone grants no access.
 - Latest lookup and exact-version lookup return validated snapshots. Database
@@ -47,10 +47,46 @@ those separate responsibilities.
 - Delete removes all local versions/chunks atomically. Indexes, caches, backups,
   and downstream evidence references need later propagation/retention rules.
 
+## SQLite implementation
+
+`build_sqlite_document_store(path, lock_timeout_seconds=5)` constructs the
+adapter through the public ingestion boundary. A dedicated file is required;
+`:memory:` is rejected. No database is opened merely by importing the module.
+New directories use mode 0700 and the database file is restricted to 0600.
+
+The composite key is `(tenant_id, document_id, version)`. Each row contains a
+single JSON snapshot, including text, parser-provided source label, chunking
+strategy/options, and all chunks. This deliberately avoids a second search
+schema in this increment; future retrieval/indexing must use its own boundary.
+
+Each operation opens and closes its own connection. Writes use
+`BEGIN IMMEDIATE`, full synchronous commits, and WAL journaling. A failed insert
+rolls back the entire version; the next-version check and insertion share the
+same transaction. Concurrent attempts at the same next version have one winner
+and one `DocumentVersionConflict`. Infrastructure and lock errors propagate;
+there is no internal automatic retry. The lock wait is a contention timeout,
+not an end-to-end operation deadline.
+
+Writes revalidate serialized snapshots deeply. Reads validate content and compare
+its tenant, document ID, and version against the row's indexed keys. Corrupt
+content or identity mismatches produce `DocumentStorageCorruption` with a generic
+message. The dedicated database's application ID and schema version are checked
+at initialization; unsupported or unrelated databases are rejected.
+
+Logical delete removes every local version row (including its embedded chunks)
+in one transaction. Secure erasure, backups, and external index/cache deletion
+are separate concerns. Shared local-file access is supported on a single host;
+multi-host/network-filesystem deployment requires a different storage adapter.
+
+Tests exercise real temporary files, reopen persistence, exact/latest reads,
+tenant isolation, competing connections, injected after-insert failure rollback,
+corruption detection, deletion, schema checks, and lock contention.
+
 ## Next implementation
 
-Build a storage adapter and integration tests for reopen persistence, tenant
-isolation, atomic writes, version conflicts under concurrency, latest/exact reads,
-and deletion. Then build the authorized ingestion coordinator around the existing
-parser and chunker public boundaries. Retrieval will later consume an explicit
-read/search boundary, rather than importing this adapter's tables or internals.
+Build the authorized ingestion coordinator around the existing parser, chunker,
+and storage public boundaries. It must establish tenant scope and permissions,
+assign document identity/version, and decide how to handle conflicts and retries.
+Then add transport/background execution and later retrieval against an explicit
+read/search boundary. No API/worker routes, environment settings, or container
+volumes are added for document storage in this increment.

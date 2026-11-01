@@ -1329,8 +1329,9 @@ crewos/ingestion/
   document_parser.py      text-extraction interface and parse error
   document_store.py       tenant-scoped storage interface and lifecycle errors
   service.py              preparation orchestration
-  bootstrap.py            wires the supported plain-text strategy
+  bootstrap.py            constructs preparation and storage adapters
   adapters/plain_text.py  UTF-8 extraction implementation
+  adapters/sqlite_document_store.py  local transactional snapshot storage
 ```
 
 `build_plain_text_preparation()` is the composition root: the setup function that
@@ -1342,7 +1343,7 @@ Earlier document-related import paths remain thin compatibility re-exports;
 there is one implementation of each contract and behavior.
 
 This is the initial module boundary. An authenticated ingestion use case,
-storage adapter, automatic chunking integration, version assignment, ingestion queue, and
+automatic chunking/storage coordination, version assignment, ingestion queue, and
 retrieval/indexing integration remain planned. Existing API routes and Celery
 workers are not connected to preparation yet. Separate worker processes can
 later execute this module without introducing a network service boundary.
@@ -1454,16 +1455,47 @@ The storage interface defines these required adapter behaviors:
 - `delete(tenant_id=..., document_id=...)`: atomically delete all stored versions
   and chunks within the tenant scope, or raise `DocumentNotFound`.
 
-These are interface requirements, not implemented database guarantees yet.
-There is no document storage adapter in this increment. The later authorized
-ingestion use case must assign identity/version, coordinate preparation and
-chunking, and call storage. Storage adapters must independently enforce tenant
-scope, validate records, use transactions, and handle concurrent version writes.
-Future external-index deletion and backup retention require their own lifecycle
-handling; a local delete cannot guarantee those effects.
+`SQLiteDocumentStore` in `crewos/ingestion/adapters/sqlite_document_store.py`
+now implements this interface. Construct it through the public setup function:
+
+```python
+from crewos.ingestion import build_sqlite_document_store
+
+store = build_sqlite_document_store("var/documents.sqlite3")
+# Authorized server code supplies a validated StoredDocumentVersion:
+# store.create_version(record)
+# store.get(tenant_id=context.tenant_id, document_id=record.document_id)
+```
+
+Use a dedicated local file, separate from the agent run database. The adapter
+creates a private directory when needed and restricts the database file to its
+owner. Each version is one JSON snapshot containing document text, metadata,
+and all chunks; this is durable storage, not a search index. Snapshot writes
+and deletes use transactions; `BEGIN IMMEDIATE` serializes the next-version
+check and insertion, so competing writers cannot overwrite the same revision.
+Connections use full synchronous commits, WAL journaling, and a configurable
+lock wait (five seconds by default). Lock/storage errors propagate; there is no
+automatic retry. An application ID and schema version reject unrelated or
+unsupported databases.
+
+Reads deeply validate snapshots and compare their identity with the indexed
+tenant/document/version keys. Invalid content raises `DocumentStorageCorruption`
+with a generic message; it is not returned as a missing document. Existing model
+instances are also revalidated before writes. Tests use real temporary SQLite
+files, multiple connections, and injected SQL failures to verify persistence,
+tenant scope, rollback, competing writes, and complete logical deletion.
+
+This adapter supports a single host with a shared local file; multi-host or
+network-filesystem deployment requires another storage implementation. It does
+not authenticate callers: the later authorized ingestion use case must supply
+trusted tenant scope, assign document identity/version, and coordinate parsing,
+chunking, and storage. API routes, workers, configuration, and deployment volumes
+are not wired to document storage yet. Future external-index deletion and backup
+retention require their own lifecycle handling; local logical deletion is not
+secure media erasure or a guarantee about those external copies.
 
 See [Document storage contract](docs/architecture/document-storage.md).
-Contract checks: `poetry run pytest tests/test_stored_document_contract.py -q`.
+Checks: `poetry run pytest tests/test_stored_document_contract.py tests/test_sqlite_document_store.py -q`.
 
 ## Chunking module
 
