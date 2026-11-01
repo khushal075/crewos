@@ -1266,6 +1266,8 @@ Regression tests run Celery's actual failure tracer for both task types with a c
 
 ## Verification record
 
+A verified local queued-agent execution is documented in [Queued agent run evidence](docs/evidence/2026-11-01-queued-agent-run.md), including correlated tool events, timings, status interpretation, and explicit limitations. This is one successful local demonstration, not a production-readiness or quality claim.
+
 The foundation batch was checked with a clean Poetry installation, 143 default tests passing, 98.08% line coverage, and one separately enabled real Redis/Celery integration test. The authentication and retry tests were subsequently split into focused files without changing their behavior. These are recorded results, not a continuously updated badge; rerun the suite for your revision.
 
 The built worker image also consumed a real Redis task and completed two HTTP calls against a deterministic fixture model server. That validates packaging, delivery, and context forwarding, not real-model reasoning quality. No live Kubernetes deployment or real customer-scale benchmark is claimed.
