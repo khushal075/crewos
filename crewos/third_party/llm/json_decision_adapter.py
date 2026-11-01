@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 import json
+from math import isfinite
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -21,16 +22,31 @@ class DecisionRefusedError(DecisionResponseError):
 
 
 class JsonDecisionAdapter(DecisionProviderInterface):
-    def __init__(self, model: BaseChatModel):
+    def __init__(self, model: BaseChatModel, *, max_call_timeout_seconds: float = 30.0):
+        self._validate_timeout(max_call_timeout_seconds)
+        self._max_call_timeout_seconds = max_call_timeout_seconds
         self._model = model
         self._adapter = TypeAdapter(ModelDecision)
+
+    @staticmethod
+    def _validate_timeout(value: float) -> None:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not isfinite(value)
+            or value <= 0
+        ):
+            raise ValueError("Model timeout must be finite and positive")
 
     def decide(
         self,
         *,
         messages: Sequence[DecisionMessage],
         tools: Sequence[ToolSchema],
+        timeout_seconds: float,
     ) -> ModelDecision:
+        self._validate_timeout(timeout_seconds)
+        effective_timeout = min(timeout_seconds, self._max_call_timeout_seconds)
         instructions = (
             "Return exactly one JSON object matching decision_schema. "
             "Choose a listed tool when needed, or return a final_answer. "
@@ -50,7 +66,8 @@ class JsonDecisionAdapter(DecisionProviderInterface):
             [
                 SystemMessage(content=instructions),
                 HumanMessage(content=history),
-            ]
+            ],
+            timeout=effective_timeout,
         )
         if response.additional_kwargs.get("refusal"):
             raise DecisionRefusedError("Model declined to provide a decision")

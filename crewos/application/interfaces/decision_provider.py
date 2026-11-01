@@ -14,9 +14,12 @@ class DecisionProviderInterface(ABC):
         *,
         messages: Sequence[DecisionMessage],
         tools: Sequence[ToolSchema],
+        timeout_seconds: float,
     ) -> ModelDecision:
         """Return one validated proposal; do not execute tools or grant access.
 
+        timeout_seconds is the positive remaining run allowance; adapters must
+        honor it without increasing their configured per-call timeout.
         Adapters translate provider formats and validate the returned decision.
         Transport errors, refusals, and malformed responses must not be turned
         into fabricated final answers. The runtime owns execution and budgets.

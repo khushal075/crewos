@@ -106,11 +106,16 @@ class AgentLoop:
                     error_type=type(error).__name__,
                 )
 
-        def check_deadline():
+        def remaining_seconds() -> float:
             nonlocal phase
-            if perf_counter() - started >= self._max_duration_seconds:
+            remaining = self._max_duration_seconds - (perf_counter() - started)
+            if remaining <= 0:
                 phase = "deadline"
                 raise AgentDeadlineExceeded("Agent run deadline exceeded")
+            return remaining
+
+        def check_deadline():
+            remaining_seconds()
 
         emit(
             "agent_run_started",
@@ -129,7 +134,11 @@ class AgentLoop:
                 tool_call_id = None
                 emit("agent_model_call_started", step=step)
                 decision = self._decision_adapter.validate_python(
-                    self._provider.decide(messages=tuple(history), tools=tool_schemas)
+                    self._provider.decide(
+                        messages=tuple(history),
+                        tools=tool_schemas,
+                        timeout_seconds=remaining_seconds(),
+                    )
                 )
                 measure("model", "success", phase_started)
                 emit(

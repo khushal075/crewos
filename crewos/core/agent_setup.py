@@ -5,6 +5,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from crewos.application.interfaces.task_status_reader import TaskStatusReaderInterface
 from crewos.application.use_cases.agent_loop import AgentLoop
 from crewos.core.tool_setup import build_tool_dispatcher
+from crewos.core.config import settings
 from crewos.infrastructure.logging import get_logger
 from crewos.infrastructure.agent_metrics import agent_metrics
 from crewos.third_party.llm.json_decision_adapter import JsonDecisionAdapter
@@ -26,7 +27,7 @@ def build_agent_loop(
     derives model-visible tool schemas from its dispatcher registrations. Construction does not invoke the model or the reader.
     """
     return AgentLoop(
-        provider=JsonDecisionAdapter(model),
+        provider=JsonDecisionAdapter(model, max_call_timeout_seconds=settings.LLM_TIMEOUT),
         dispatcher=build_tool_dispatcher(reader=reader),
         max_decisions=max_decisions,
         max_duration_seconds=max_duration_seconds,
