@@ -1352,7 +1352,38 @@ layer before buffering; a parser check alone does not bound upload memory.
 Future complex parsers will need format-specific extraction, output, and time
 limits; the interface itself does not provide these guarantees.
 
-Run the checks with `poetry run pytest tests/test_document_input.py tests/test_document_parser.py -q`.
+`DocumentPreparationService` in
+`crewos/application/services/document_preparation.py` now composes extraction and
+validation. It receives a `DocumentParserInterface` through its constructor
+(dependency injection) and uses that interchangeable parser as a Strategy. Its
+`prepare(content=..., title=..., source_ref=...)` method returns `DocumentInput`;
+parser errors and validation errors propagate to the caller. The service imports
+no concrete parser and assigns no tenant/document identity or persistence.
+It is a preparation component, not the complete ingestion use case.
+
+```python
+from crewos.application.services.document_preparation import DocumentPreparationService
+from crewos.infrastructure.plain_text_document_parser import PlainTextDocumentParser
+
+service = DocumentPreparationService(parser=PlainTextDocumentParser())
+document = service.prepare(
+    content=b"Check CRM delivery logs before retrying.",
+    title="CRM recovery runbook",
+    source_ref="runbook:v1",
+)
+```
+
+The implemented preparation and planned ingestion flow is:
+
+```text
+Already-loaded bytes -> injected parser -> DocumentInput validation
+Plain-text submissions -----------------> DocumentInput validation
+                                         -> authenticated ingestion use case (planned)
+                                         -> tenant-scoped storage (planned)
+                                         -> chunking -> indexing -> authorized retrieval (planned)
+```
+
+Run the checks with `poetry run pytest tests/test_document_input.py tests/test_document_parser.py tests/test_document_preparation.py -q`.
 
 ## Contributing and documentation
 
