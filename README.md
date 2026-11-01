@@ -1325,8 +1325,8 @@ separate public `crewos.chunking` module. Current layout:
 ```text
 crewos/ingestion/
   __init__.py             public contracts, ports, service, and setup function
-  contracts.py            DocumentInput and compatibility TextChunk export
-  ports.py                parser interface and shared parse error
+  contracts.py            input, stored versions, compatibility chunk export
+  ports.py                parser/storage interfaces and shared errors
   service.py              preparation orchestration
   bootstrap.py            wires the supported plain-text strategy
   adapters/plain_text.py  UTF-8 extraction implementation
@@ -1341,7 +1341,7 @@ Earlier document-related import paths remain thin compatibility re-exports;
 there is one implementation of each contract and behavior.
 
 This is the initial module boundary. An authenticated ingestion use case,
-storage port, automatic chunking integration, document versioning, ingestion queue, and
+storage adapter, automatic chunking integration, version assignment, ingestion queue, and
 retrieval/indexing integration remain planned. Existing API routes and Celery
 workers are not connected to preparation yet. Separate worker processes can
 later execute this module without introducing a network service boundary.
@@ -1428,6 +1428,41 @@ Plain-text submissions -----------------> DocumentInput validation
 ```
 
 Run the checks with `poetry run pytest tests/test_document_input.py tests/test_document_parser.py tests/test_document_preparation.py tests/test_text_chunk.py tests/test_ingestion_module.py -q`.
+
+## Stored-document boundary
+
+The public ingestion API now exports `StoredDocumentVersion` and
+`DocumentStoreInterface`. A stored version is a backend-assembled immutable
+snapshot with a UUID4 document ID, tenant ID, positive version number,
+timezone-aware creation timestamp (UTC by default), validated `DocumentInput`,
+and a `ChunkingResult` containing strategy/options and chunks. Snapshot
+validation checks source text, sequential chunk indices, complete coverage,
+and consistent spans. This is an internal storage contract, not a new upload
+schema: user input still cannot assign tenant identity or document IDs.
+Structural validation does not prove authorization, source truth, or version
+sequencing against existing records.
+
+The storage interface defines these required adapter behaviors:
+
+- `create_version(record)`: atomically save text, chunk metadata, and chunks as
+  one immutable snapshot. The first version is 1; subsequent versions are exactly
+  latest + 1 within `(tenant_id, document_id)`. Duplicate or competing writes
+  raise `DocumentVersionConflict`, without overwriting an existing version.
+- `get(tenant_id=..., document_id=..., version=None)`: return a specific version
+  or the latest. Missing and other-tenant records both raise `DocumentNotFound`.
+- `delete(tenant_id=..., document_id=...)`: atomically delete all stored versions
+  and chunks within the tenant scope, or raise `DocumentNotFound`.
+
+These are interface requirements, not implemented database guarantees yet.
+There is no document storage adapter in this increment. The later authorized
+ingestion use case must assign identity/version, coordinate preparation and
+chunking, and call storage. Storage adapters must independently enforce tenant
+scope, validate records, use transactions, and handle concurrent version writes.
+Future external-index deletion and backup retention require their own lifecycle
+handling; a local delete cannot guarantee those effects.
+
+See [Document storage contract](docs/architecture/document-storage.md).
+Contract checks: `poetry run pytest tests/test_stored_document_contract.py -q`.
 
 ## Chunking module
 
