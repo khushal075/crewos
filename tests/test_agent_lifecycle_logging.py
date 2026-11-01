@@ -116,3 +116,37 @@ def test_separate_invocations_receive_distinct_run_ids():
     loop.run(**kwargs)
     starts = [record for record in events(logger) if record["event"] == "agent_run_started"]
     assert starts[0]["agent_run_id"] != starts[1]["agent_run_id"]
+
+
+def test_supplied_run_id_is_preserved_across_lifecycle_events():
+    from uuid import uuid4
+
+    assigned_id = uuid4()
+    loop, logger, _, kwargs = run([tool(), FinalAnswerDecision(type="final_answer", answer="Done")])
+    loop.run(**kwargs, agent_run_id=assigned_id)
+    assert {record["agent_run_id"] for record in events(logger)} == {str(assigned_id)}
+
+
+def test_supplied_uuid_string_is_accepted_for_queue_json_compatibility():
+    from uuid import uuid4
+
+    assigned_id = str(uuid4())
+    loop, logger, _, kwargs = run([FinalAnswerDecision(type="final_answer", answer="Done")])
+    loop.run(**kwargs, agent_run_id=assigned_id)
+    assert events(logger)[0]["agent_run_id"] == assigned_id
+
+
+@pytest.mark.parametrize(
+    "invalid_id", ["arbitrary-text", "00000000-0000-0000-0000-000000000000", 123]
+)
+def test_invalid_supplied_run_id_stops_before_provider_or_reader(invalid_id):
+    from pydantic import ValidationError
+
+    loop, logger, reader, kwargs = run([])
+    provider = Mock()
+    loop._provider = provider
+    with pytest.raises(ValidationError):
+        loop.run(**kwargs, agent_run_id=invalid_id)
+    provider.decide.assert_not_called()
+    reader.read.assert_not_called()
+    logger.log.assert_not_called()

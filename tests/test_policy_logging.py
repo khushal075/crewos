@@ -98,3 +98,13 @@ def test_agent_tool_policy_event_matches_lifecycle_ids():
     assert policy_event["tool_call_id"] == tool_event["tool_call_id"]
     assert policy_event["step"] == tool_event["step"]
     assert get_tool_log_context() is None
+
+
+def test_backend_run_id_reaches_policy_events():
+    from uuid import uuid4
+
+    assigned_id = uuid4()
+    loop, _, _ = setup_loop([tool_call(), FinalAnswerDecision(type="final_answer", answer="Done")])
+    with patch("crewos.core.tool_setup.logger.log") as policy_log:
+        loop.run(**inputs(), agent_run_id=assigned_id)
+    assert policy_log.call_args.args[1]["agent_run_id"] == str(assigned_id)

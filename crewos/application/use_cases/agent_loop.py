@@ -4,9 +4,9 @@ from collections.abc import Sequence
 import json
 import logging
 from time import perf_counter
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-from pydantic import TypeAdapter
+from pydantic import UUID4, TypeAdapter
 
 from crewos.application.dtos.decision_request import DecisionMessage
 from crewos.application.dtos.model_decision import FinalAnswerDecision, ModelDecision
@@ -45,6 +45,7 @@ class AgentLoop:
         *,
         messages: Sequence[DecisionMessage],
         context: ToolExecutionContext,
+        agent_run_id: UUID | str | None = None,
     ) -> FinalAnswerDecision:
         """Caller establishes message provenance and trusted execution context.
 
@@ -52,7 +53,9 @@ class AgentLoop:
         history requires provider adaptation; it is not a native tool protocol.
         Failures propagate and no successful answer is fabricated.
         """
-        run_id = str(uuid4())
+        run_id = str(
+            uuid4() if agent_run_id is None else TypeAdapter(UUID4).validate_python(agent_run_id)
+        )
         started = perf_counter()
         step = 0
         tool_calls = 0
