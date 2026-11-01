@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from crewos.api.routes import router as api_router
+from crewos.api.agent_routes import router as agent_router
 from crewos.api.middleware.request_id import RequestIDMiddleware
 from crewos.api.middleware.logging import LoggingMiddleware
 
@@ -30,3 +31,4 @@ app.add_middleware(LoggingMiddleware)
 
 
 app.include_router(api_router)
+app.include_router(agent_router)
