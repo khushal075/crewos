@@ -1,12 +1,17 @@
 """Public authorized ingestion entry point and safe lifecycle logging."""
 
+from collections.abc import Callable
 import logging
 from time import monotonic
 from uuid import uuid4
 
 from crewos.application.dtos.tool_execution_context import ToolExecutionContext
 from crewos.application.services.policy_executor import PolicyEnforcedExecutor
-from crewos.ingestion.contracts import DocumentIngestionRequest, StoredDocumentVersion
+from crewos.ingestion.contracts import (
+    DocumentIngestionRequest,
+    DocumentUpdateRequest,
+    StoredDocumentVersion,
+)
 from crewos.ingestion.document_processing_coordinator import DocumentProcessingCoordinator
 
 
@@ -28,24 +33,52 @@ class DocumentIngestionFacade:
         """Require caller-established authenticated context; check document.create.
 
         Each successful call creates a new document/version 1. Submission
-        deduplication, updates, background scheduling, and transport are separate.
+        deduplication, background scheduling, and transport are separate.
         """
         return self._executor.execute(
             context=context,
             action="document.create",
-            operation=lambda: self._ingest(request=request, tenant_id=context.tenant_id),
+            operation=lambda: self._record_lifecycle(
+                tenant_id=context.tenant_id,
+                event_prefix="document_ingestion",
+                operation=lambda: self._coordinator.process(
+                    request=request, tenant_id=context.tenant_id
+                ),
+            ),
         )
 
-    def _ingest(self, *, request, tenant_id):
+    def update(
+        self, *, request: DocumentUpdateRequest, context: ToolExecutionContext
+    ) -> StoredDocumentVersion:
+        """Require document.update; preserve identity and append a new snapshot."""
+        return self._executor.execute(
+            context=context,
+            action="document.update",
+            operation=lambda: self._record_lifecycle(
+                tenant_id=context.tenant_id,
+                event_prefix="document_update",
+                operation=lambda: self._coordinator.update(
+                    request=request, tenant_id=context.tenant_id
+                ),
+            ),
+        )
+
+    def _record_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        event_prefix: str,
+        operation: Callable[[], StoredDocumentVersion],
+    ) -> StoredDocumentVersion:
         fields = {"tenant_id": tenant_id, "operation_id": str(uuid4())}
         started = monotonic()
-        self._logger.info({"event": "document_ingestion_started", **fields})
+        self._logger.info({"event": f"{event_prefix}_started", **fields})
         try:
-            saved = self._coordinator.process(request=request, tenant_id=tenant_id)
+            saved = operation()
         except Exception as error:
             self._logger.error(
                 {
-                    "event": "document_ingestion_failed",
+                    "event": f"{event_prefix}_failed",
                     **fields,
                     "error_type": type(error).__name__,
                     "duration_ms": round((monotonic() - started) * 1000, 3),
@@ -54,7 +87,7 @@ class DocumentIngestionFacade:
             raise
         self._logger.info(
             {
-                "event": "document_ingestion_succeeded",
+                "event": f"{event_prefix}_succeeded",
                 **fields,
                 "document_id": str(saved.document_id),
                 "version": saved.version,

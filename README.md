@@ -1344,10 +1344,10 @@ adapter or implementation files. An architecture test checks this boundary.
 Earlier document-related import paths remain thin compatibility re-exports;
 there is one implementation of each contract and behavior.
 
-`DocumentIngestionFacade` now provides authorized new-document creation and
-lifecycle logging. Its internal `DocumentProcessingCoordinator` sequences
+`DocumentIngestionFacade` now provides authorized document creation, versioned
+updates, and lifecycle logging. Its internal `DocumentProcessingCoordinator` sequences
 preparation, chunking, and storage. Authentication/transport integration,
-updates/version advancement, ingestion queues, and retrieval/indexing remain
+authorized read/delete operations, ingestion queues, and retrieval/indexing remain
 planned. Existing API routes and Celery workers are not connected to ingestion yet. Separate worker processes can
 later execute this module without introducing a network service boundary.
 
@@ -1444,8 +1444,9 @@ and delegates to the internal `DocumentProcessingCoordinator` in
 parsers, chunkers, or storage directly.
 
 The processing coordinator owns the sequence: revalidate the source command,
-prepare text, call chunking, assemble a backend UUID4/version-1 snapshot, and save
-it. It depends on component interfaces and has no authentication/policy or
+prepare text, call chunking, assemble a snapshot, and save it. Creation assigns
+a backend UUID4/version 1; updates retain the ID and append the next version after
+checking the trusted tenant scope and expected revision. It depends on component interfaces and has no authentication/policy or
 lifecycle-logging responsibility. It is not exported from the public package;
 callers must enter through the facade. This is a Python module boundary, not a
 sandbox preventing trusted code from importing internals.
@@ -1479,10 +1480,11 @@ version, and chunk count on success); text, title, source labels,
 and raw exception messages are excluded. These are local events, not new
 metrics or distributed traces.
 
-This increment creates new documents only. Each call assigns a new ID; repeated
-submissions are not idempotent, including a retry after an uncertain commit.
-Updates, request deduplication, authorized read/delete use cases, background
-execution, and API wiring remain future steps. Tests compose the actual parser,
+`ingest()` creates a new document each time; repeated create submissions are not
+idempotent, including retries after an uncertain commit. `update()` preserves
+document identity and requires `document.update` plus an expected current
+revision, as described below. Request deduplication, authorized read/delete use
+cases, background execution, and API wiring remain future steps. Tests compose the actual parser,
 chunker, and SQLite store and separately verify authorization and failure gates.
 Run `poetry run pytest tests/test_document_ingestion_request.py tests/test_document_ingestion_facade.py tests/test_document_processing_coordinator.py tests/test_ingestion_module.py -q`.
 
@@ -1502,10 +1504,31 @@ concurrency precondition: stale edits must fail rather than silently overwrite
 newer work. An ID identifies a resource; it does not authorize access. The update
 operation must use trusted tenant scope and check `document.update`.
 
-This increment defines and tests the command only. The facade and processing
-coordinator still create new documents; no update method, permission wiring,
-concurrency enforcement for the update use case, or endpoint is added yet.
-Run `poetry run pytest tests/test_document_update_request.py -q`.
+The facade now exposes `update(request=..., context=...)`. It checks
+`document.update` before invoking the coordinator and records
+`document_update_started`, `document_update_succeeded`, or
+`document_update_failed` with the same safe metadata policy as creation.
+No permission grants are added automatically; the caller must establish trusted
+context with server-assigned permissions.
+
+The coordinator revalidates the command and reads the latest snapshot using
+`context.tenant_id` and `document_id`. Missing and other-tenant documents produce
+`DocumentNotFound` before parsing. A mismatched `expected_version` raises
+`DocumentVersionConflict` before preparing replacement content. On a match, it
+prepares and chunks the full replacement, then appends version
+`expected_version + 1` under the same document ID. Earlier versions remain intact.
+
+The initial read is an early check, not a lock held during parsing. If another
+update commits during processing, the storage adapter's transactional
+next-version check rejects the losing append. The facade propagates that conflict
+without retrying or merging changes. Retrying an already successful update with
+its original expected version also conflicts; this is not an idempotent replay
+of the prior response. API/worker integration remains future work.
+
+Tests cover permissions, tenant scope, missing documents, stale/future revisions,
+processing failures preserving old versions, safe logging, and synchronized
+competing updates through real SQLite storage. Run
+`poetry run pytest tests/test_document_update_request.py tests/test_document_update.py -q`.
 
 ## Stored-document boundary
 
@@ -1564,8 +1587,9 @@ tenant scope, rollback, competing writes, and complete logical deletion.
 This adapter supports a single host with a shared local file; multi-host or
 network-filesystem deployment requires another storage implementation. It does
 not authenticate callers: the ingestion facade requires trusted tenant
-context and checks `document.create`; its processing coordinator assigns a
-UUID4/version 1 and connects preparation, chunking, and storage. API routes, workers, configuration, and deployment volumes
+context and checks `document.create` or `document.update`; its processing
+coordinator assigns a new UUID4/version 1 or appends an expected revision and
+connects preparation, chunking, and storage. API routes, workers, configuration, and deployment volumes
 are not wired to document storage yet. Future external-index deletion and backup
 retention require their own lifecycle handling; local logical deletion is not
 secure media erasure or a guarantee about those external copies.

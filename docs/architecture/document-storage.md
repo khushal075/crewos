@@ -6,11 +6,13 @@ which connects preparation, chunking, and storage in-process; API and worker int
 
 ```mermaid
 flowchart LR
-    Auth[DocumentIngestionFacade: document.create policy gate] --> Coordinator[DocumentProcessingCoordinator]
-    Coordinator --> Prep[Existing preparation service]
+    Auth[DocumentIngestionFacade: document.create or document.update policy gate] --> Coordinator[DocumentProcessingCoordinator]
+    Coordinator -->|create| Prep[Existing preparation service]
+    Coordinator -->|update| Lookup[Tenant-scoped latest read and expected-version check]
+    Lookup --> Prep
     Prep --> Chunk[Existing chunking service]
     Chunk --> Snapshot[StoredDocumentVersion]
-    Coordinator --> Identity[Trusted tenant scope, backend UUID4 and version 1]
+    Coordinator --> Identity[Trusted tenant scope and backend-assigned revision]
     Identity --> Snapshot
     Snapshot --> Interface[DocumentStoreInterface]
     Interface --> DB[SQLiteDocumentStore: transactional snapshots]
@@ -107,15 +109,36 @@ exception class only. Source content, titles, labels, and raw exception messages
 are excluded. The shared policy executor logs policy denial/evaluation failure
 before processing begins.
 
-The flow creates new documents only and provides no submission idempotency.
-Every successful call creates a new ID; retrying after uncertain persistence can
-create a duplicate. Version updates, deduplication, read/delete authorization,
-and asynchronous scheduling are future use cases. Low-level storage remains
+`ingest()` creates a new ID/version 1 and provides no submission idempotency;
+retrying after uncertain persistence can create a duplicate. `update()` now
+preserves identity and appends a version under a separate permission and
+optimistic concurrency precondition. Read/delete authorization, request
+idempotency, and asynchronous scheduling remain future use cases. Low-level storage remains
 protected by tenant-scoped SQL but cannot establish caller authentication.
+
+## Versioned updates
+
+`DocumentIngestionFacade.update()` enforces `document.update` before invoking
+processing. The coordinator revalidates `DocumentUpdateRequest`, scopes the latest
+lookup by tenant, and compares its revision with `expected_version`. Missing and
+other-tenant documents raise `DocumentNotFound`; mismatched revisions raise
+`DocumentVersionConflict` before parsing. Replacement bytes, title, and source
+label are processed as a full replacement; absent source reference clears it.
+
+The coordinator assembles the same document ID with version
+`expected_version + 1`. Preparation and chunking happen outside the write
+transaction. The storage adapter's existing next-version check fences concurrent
+appends after the initial read. A conflict is propagated without automatic retry
+or merging, and no historical snapshot is overwritten. Tests synchronize two
+updates after their reads and verify one winner, one conflict, and unchanged
+history. Parse/chunk/store failures leave the previous committed version intact.
+
+Update lifecycle events use the `document_update_*` prefix. As with creation,
+only safe IDs, timings, counts, and exception class names are emitted. No
+credentials, grants, routes, or worker behavior change in this increment.
 
 ## Next implementation
 
-Add document update/version-conflict handling and authorized lifecycle operations,
-then transport/background execution. Retrieval will later use an explicit
+Add authorized read/delete operations, then transport/background execution. Retrieval will later use an explicit
 read/search boundary. No API/worker routes, environment grants, or container
 volumes are added for ingestion in this increment.
