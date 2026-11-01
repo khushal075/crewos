@@ -1315,6 +1315,26 @@ The foundation batch was checked with a clean Poetry installation, 143 default t
 
 The built worker image also consumed a real Redis task and completed two HTTP calls against a deterministic fixture model server. That validates packaging, delivery, and context forwarding, not real-model reasoning quality. No live Kubernetes deployment or real customer-scale benchmark is claimed.
 
+## Document ingestion foundation
+
+The first ingestion increment is `DocumentInput` in
+`crewos/application/dtos/document_input.py`. It validates an untrusted plain-text
+submission: a required title (up to 256 characters), required text (up to
+1,000,000 characters), and an optional source reference (up to 2,048 characters).
+These are character limits, not byte or model-token limits. Text must contain
+non-whitespace content; its original spacing and line breaks are preserved for
+later chunk offsets. Titles and source labels are trimmed.
+
+The source reference is a provenance label only: it does not fetch a URL, prove
+correctness, or grant access. Client-supplied tenant identity, document IDs, and
+permissions are rejected. A later ingestion use case must obtain tenant identity
+from authenticated context and assign document identity on the backend.
+Validation does not make document content trusted instructions or prevent prompt
+injection. There is no ingestion endpoint, persistence, chunking, embeddings,
+or search yet.
+
+Run the contract checks with `poetry run pytest tests/test_document_input.py -q`.
+
 ## Contributing and documentation
 
 Use small commits that pair each behavior change with meaningful tests. Preserve useful explanations when changing documentation: correct outdated statements, add newly implemented behavior, and explicitly label planned features rather than deleting architectural context.
