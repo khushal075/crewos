@@ -1054,7 +1054,7 @@ CLI tests exercise real authentication, context construction, adapter, loop, dis
 
 ## Structured agent lifecycle logging
 
-`AgentLoop` emits structured metadata through an injected standard Python logger; `build_agent_loop` supplies the existing JSON logger as `crewos.agent`. Each `run()` generates a fresh `agent_run_id`, distinct from the Celery task ID being inspected. Events correlate that ID and tenant across model calls, tool execution, and one terminal success/failure event. Each attempted tool dispatch receives its own `tool_call_id`; decision steps are one-based.
+`AgentLoop` emits structured metadata through an injected standard Python logger; `build_agent_loop` supplies the existing JSON logger as `crewos.agent`. Each `run()` generates a fresh `agent_run_id` by default, distinct from the Celery task ID being inspected. Trusted callers can supply a UUIDv4 `agent_run_id` to preserve submission identity; it is validated before model or tool execution. Events correlate that ID and tenant across model calls, tool execution, and one terminal success/failure event. Each attempted tool dispatch receives its own `tool_call_id`; decision steps are one-based.
 
 | Event | Purpose |
 |---|---|
@@ -1113,6 +1113,43 @@ Metrics recording failures emit a generic lifecycle warning and do not replace t
 
 Reference: [Prometheus Python registry](https://prometheus.github.io/client_python/registry/) and [histograms](https://prometheus.github.io/client_python/instrumenting/histogram/).
 
+## CLI metrics snapshots
+
+Add `--metrics-file PATH` to preserve the CLI process's metrics after an attempted agent run:
+
+```bash
+poetry run python -m crewos.core.agent_demo \
+  --tenant-id tenant_a \
+  --message "Use get_agent_task_status to inspect task TASK_ID." \
+  --metrics-file /tmp/crewos-agent-metrics.prom
+```
+
+The parent directory must already exist. The snapshot uses Prometheus exposition text and contains the same bounded metric labels described above, not prompts, task identifiers, tenant credentials, or answers. It is written after successful agent completion or an ordinary agent execution failure. Argument/authentication/setup failures before loop invocation do not write a snapshot. Abrupt termination is not guaranteed to export metrics.
+
+`write_metrics_snapshot` renders the current process registry, writes a temporary file in the destination directory, and atomically replaces the destination. An existing destination is replaced, not appended to; readers do not observe a partially written new snapshot. Temporary files are cleaned up after write/replacement failures. This is atomic visibility, not a disk-durability guarantee. The local operator chooses the path; use a dedicated metrics file, not a source/configuration file.
+
+Snapshot failures produce a generic stderr warning without changing the agent's success/failure exit code. Thus exit code 0 alone does not establish that the requested file was written. Snapshots contain cumulative measurements for that Python process; fresh CLI processes start fresh counters. They are not per-run deltas, cross-process aggregates, or durable time-series history. No exporter server, scrape configuration, or dashboard is introduced.
+
+Tests verify success/failure snapshots, no export after authentication rejection, preservation of agent exit codes on export failure, sensitive-content exclusion, atomic replacement, and cleanup while preserving an older snapshot on replacement failure. Live snapshot verification remains a separate step.
+
+## Queued agent-job contract (worker integration pending)
+
+`AgentRunJob` in `crewos/application/dtos/agent_run_job.py` defines the future backend-created queue envelope: a UUIDv4 `agent_run_id`, validated `tenant_id`, nonblank user `message`, and positive integer `max_decisions` (default 5). It is frozen and rejects undeclared fields, including bearer tokens, serialized context, and permission grants. `model_dump(mode="json")` serializes the UUID for JSON transport. The submission application must assign the run and tenant identity fields; this contract is not a public request model that accepts caller-assigned identity.
+
+This contract validates structure only. A valid envelope does not prove authenticated origin, registration, ownership, queue integrity, worker eligibility, or permission. Those checks still require explicit integration and restricted broker access. The model-facing message remains user data; claims in its text do not become execution identity. The contract does not inspect message text for secrets, so excluding credential fields is not automatic redaction of user-supplied content.
+
+The intended worker path will verify registered ownership before inference and build context from server-owned permission configuration rather than queue-supplied grants. Configuration is loaded per worker process; it is not an instantly revocable shared permission service. Execution policy checks remain required. The agent loop now accepts the job's validated run ID through `run(agent_run_id=job.agent_run_id, ...)`; actual worker wiring must still pass it explicitly. No new Celery task or submission endpoint is added by this contract, and the existing fixed-workflow worker is unchanged.
+
+Tests cover required fields, UUID and tenant validation, strict budgets, JSON round trips, immutability, and rejection of authority/credential fields. They do not establish queue authenticity or a working queued agent execution.
+
+## Preserving submission identity
+
+`AgentLoop.run` accepts an optional UUIDv4 `agent_run_id` as a UUID object or JSON-compatible string. If omitted, it generates a fresh UUID as before. Invalid supplied identifiers fail validation before inference, dispatch, or run-start logging. All subsequent lifecycle and scoped policy/reader events use the canonical string of the selected run ID. Per-tool-call IDs remain independently generated.
+
+This ID is correlation metadata only. Accepting it does not establish a run's existence, ownership, or permission, deduplicate execution, or persist state. A future worker must validate its job and ownership registration before passing the ID. Retries may reuse a logical run ID; distinct attempt identity and durable execution records still require design. Existing CLI usage is unchanged and no queued agent worker is introduced by this change.
+
+Tests verify backend-assigned UUID preservation, string transport compatibility, policy-event correlation, invalid-ID rejection before side effects, and continued automatic IDs for independent invocations.
+
 ## Implemented versus planned
 
 | Area | Current state |
@@ -1139,7 +1176,8 @@ Reference: [Prometheus Python registry](https://prometheus.github.io/client_pyth
 | Text-JSON decision adapter | Implemented with controlled-response tests; live-model and entrypoint integration pending |
 | Agent loop assembly | Adapter and protected dispatcher connected by setup factory; controlled integration tests only |
 | Local CLI demo | Authenticated entry point implemented and tested with controlled dependencies; live-run evidence pending |
-| Dynamic model-chosen tool calls | Real-model validation pending |
+| Queued agent-job contract | Backend-owned payload shape implemented; submission, worker verification, and queued run correlation pending |
+| Dynamic model-chosen tool calls | One successful local tool-choice path observed; broader evaluation pending |
 | Bounded observation/action agent loop | Sequential loop implemented and tested with scripted decisions; real-provider and entrypoint integration pending |
 | Durable run state, checkpoints, and resume | Planned |
 | Scoped persistent memory | Planned; memory file is a placeholder |
@@ -1149,7 +1187,7 @@ Reference: [Prometheus Python registry](https://prometheus.github.io/client_pyth
 | Provider capability routing, fallback, and circuit breakers | Planned |
 | Multi-agent handoffs and comparative evaluation | Planned |
 | Agent lifecycle logging | Structured lifecycle, policy, and reader events correlated locally; persistence and distributed propagation pending |
-| Initial agent metrics | Process-local counters/histograms implemented; scrape/export, persistence, dashboards, and multiprocess aggregation pending |
+| Initial agent metrics | Process-local counters/histograms and optional CLI snapshots implemented; scraping, time-series persistence, dashboards, and multiprocess aggregation pending |
 | Full distributed tracing, token/cost accounting, and rate controls | Planned |
 
 ## Verification record
