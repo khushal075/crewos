@@ -18,6 +18,7 @@ def build_agent_loop(
     model: BaseChatModel,
     reader: TaskStatusReaderInterface,
     max_decisions: int = 5,
+    max_duration_seconds: float = 120.0,
 ) -> AgentLoop:
     """Caller supplies configured dependencies and per-run inputs separately.
 
@@ -28,6 +29,7 @@ def build_agent_loop(
         provider=JsonDecisionAdapter(model),
         dispatcher=build_tool_dispatcher(reader=reader),
         max_decisions=max_decisions,
+        max_duration_seconds=max_duration_seconds,
         logger=logger,
         metrics=agent_metrics,
     )

@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 import json
 import logging
+from math import isfinite
 from time import perf_counter
 from uuid import UUID, uuid4
 
@@ -21,6 +22,10 @@ class DecisionLimitExceeded(RuntimeError):
     """The configured decision budget ended before a final answer was returned."""
 
 
+class AgentDeadlineExceeded(TimeoutError):
+    """The cooperative elapsed-time budget ended; in-flight work is not undone."""
+
+
 class AgentLoop:
     def __init__(
         self,
@@ -28,11 +33,20 @@ class AgentLoop:
         provider: DecisionProviderInterface,
         dispatcher: ToolDispatcher,
         max_decisions: int = 5,
+        max_duration_seconds: float = 120.0,
         logger: logging.Logger | None = None,
         metrics: AgentMetricsInterface | None = None,
     ):
         if type(max_decisions) is not int or max_decisions < 1:
             raise ValueError("max_decisions must be a positive integer")
+        if (
+            isinstance(max_duration_seconds, bool)
+            or not isinstance(max_duration_seconds, (int, float))
+            or not isfinite(max_duration_seconds)
+            or max_duration_seconds <= 0
+        ):
+            raise ValueError("max_duration_seconds must be finite and positive")
+        self._max_duration_seconds = max_duration_seconds
         self._provider = provider
         self._dispatcher = dispatcher
         self._max_decisions = max_decisions
@@ -92,12 +106,24 @@ class AgentLoop:
                     error_type=type(error).__name__,
                 )
 
-        emit("agent_run_started", max_decisions=self._max_decisions)
+        def check_deadline():
+            nonlocal phase
+            if perf_counter() - started >= self._max_duration_seconds:
+                phase = "deadline"
+                raise AgentDeadlineExceeded("Agent run deadline exceeded")
+
+        emit(
+            "agent_run_started",
+            max_decisions=self._max_decisions,
+            max_duration_seconds=self._max_duration_seconds,
+        )
         try:
             history = list(messages)
             tool_schemas = self._dispatcher.tool_schemas()
             registered_names = {tool.name for tool in tool_schemas}
-            for step in range(1, self._max_decisions + 1):
+            for next_step in range(1, self._max_decisions + 1):
+                check_deadline()
+                step = next_step
                 phase = "model"
                 phase_started = perf_counter()
                 tool_call_id = None
@@ -112,6 +138,7 @@ class AgentLoop:
                     duration_ms=round((perf_counter() - phase_started) * 1000, 3),
                     decision_type=decision.type,
                 )
+                check_deadline()
                 if isinstance(decision, FinalAnswerDecision):
                     measure("run", "success", started)
                     emit(
@@ -133,6 +160,7 @@ class AgentLoop:
                 emit(
                     "agent_tool_call_started", step=step, tool_call_id=tool_call_id, tool=safe_name
                 )
+                check_deadline()
                 with tool_log_context(
                     ToolLogContext(
                         agent_run_id=run_id,
@@ -154,6 +182,7 @@ class AgentLoop:
                     tool=safe_name,
                     duration_ms=round((perf_counter() - phase_started) * 1000, 3),
                 )
+                check_deadline()
                 phase = "observation"
                 phase_started = perf_counter()
                 history.append(
@@ -171,29 +200,33 @@ class AgentLoop:
                     )
                 )
 
+            check_deadline()
             phase = "decision_limit"
             raise DecisionLimitExceeded("Decision limit reached before a final answer")
         except Exception as error:
+            stop_reason: Outcome = (
+                "deadline"
+                if isinstance(error, AgentDeadlineExceeded)
+                else "decision_limit" if isinstance(error, DecisionLimitExceeded) else "error"
+            )
             if phase in {"model", "tool"}:
                 measure(phase, "error", phase_started)
             measure(
                 "run",
-                "decision_limit" if isinstance(error, DecisionLimitExceeded) else "error",
+                stop_reason,
                 started,
             )
             emit(
                 "agent_run_failed",
                 level=(
-                    logging.WARNING if isinstance(error, DecisionLimitExceeded) else logging.ERROR
+                    logging.WARNING
+                    if stop_reason in {"deadline", "decision_limit"}
+                    else logging.ERROR
                 ),
                 step=step,
                 phase=phase,
                 error_type=type(error).__name__,
-                reason=(
-                    "decision_limit"
-                    if isinstance(error, DecisionLimitExceeded)
-                    else "execution_error"
-                ),
+                reason=(stop_reason if stop_reason != "error" else "execution_error"),
                 decisions=step,
                 tool_calls=tool_calls,
                 tools_completed=tools_completed,

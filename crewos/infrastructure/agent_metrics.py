@@ -30,10 +30,10 @@ class PrometheusAgentMetrics:
     def observe(self, *, operation: Operation, outcome: Outcome, duration_seconds: float) -> None:
         if operation not in {"run", "model", "tool"}:
             raise ValueError("Unsupported metric operation")
-        if outcome not in {"success", "error", "decision_limit"}:
+        if outcome not in {"success", "error", "decision_limit", "deadline"}:
             raise ValueError("Unsupported metric outcome")
-        if outcome == "decision_limit" and operation != "run":
-            raise ValueError("Decision-limit outcome applies only to runs")
+        if outcome in {"decision_limit", "deadline"} and operation != "run":
+            raise ValueError("Budget outcomes apply only to runs")
         if not isfinite(duration_seconds) or duration_seconds < 0:
             raise ValueError("Metric duration must be finite and nonnegative")
         self._operations.labels(operation=operation, outcome=outcome).inc()
