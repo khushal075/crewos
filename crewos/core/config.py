@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     LLM_TIMEOUT: float = Field(default=30, gt=0, le=120)
     LLM_MAX_RETRIES: int = Field(default=3, ge=0, le=5)
 
+    # Single-host document lifecycle and durable submissions.
+    DOCUMENT_DB_PATH: str = "var/documents.sqlite3"
+    DOCUMENT_JOB_LEASE_SECONDS: float = Field(default=180, gt=150, allow_inf_nan=False)
+    DOCUMENT_JOB_MAX_ATTEMPTS: int = Field(default=3, ge=1, le=10)
+    DOCUMENT_MAX_REQUEST_BYTES: int = Field(default=8_100_000, ge=1024, le=16_000_000)
+
     # Single-host durable agent runtime. Shared multi-host storage is a separate adapter.
     AGENT_RUN_DB_PATH: str = "var/agent_runs.sqlite3"
     AGENT_LEASE_SECONDS: float = Field(default=45, gt=0, allow_inf_nan=False)

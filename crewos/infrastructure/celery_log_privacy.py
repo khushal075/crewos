@@ -5,6 +5,7 @@ import logging
 TASK_NAMES = frozenset(
     {
         "crewos.workers.agent_task.run_agent",
+        "crewos.workers.document_task.run_document_job",
         "crewos.workers.crew_task.run_crew",
     }
 )

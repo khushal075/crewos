@@ -3,11 +3,16 @@ from starlette.middleware.cors import CORSMiddleware
 
 from crewos.api.routes import router as api_router
 from crewos.api.agent_routes import router as agent_router
+from crewos.api.document_routes import router as document_router
+from crewos.api.middleware.document_body_limit import DocumentBodyLimitMiddleware
 from crewos.api.middleware.request_id import RequestIDMiddleware
 from crewos.api.middleware.logging import LoggingMiddleware
 
 
 app = FastAPI(title="CrewAI platform", version="0.1.0")
+
+# Keep request-ID/logging middleware outside admission so rejected bodies are observable.
+app.add_middleware(DocumentBodyLimitMiddleware)
 
 
 app.add_middleware(
@@ -32,3 +37,5 @@ app.add_middleware(LoggingMiddleware)
 
 app.include_router(api_router)
 app.include_router(agent_router)
+
+app.include_router(document_router)

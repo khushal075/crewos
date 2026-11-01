@@ -8,7 +8,11 @@ celery_app = Celery(
     "crewai",
     broker=settings.REDIS_BROKER_URL,
     backend=settings.REDIS_RESULT_BACKEND,  # <-- add this
-    include=["crewos.workers.crew_task", "crewos.workers.agent_task"],
+    include=[
+        "crewos.workers.crew_task",
+        "crewos.workers.agent_task",
+        "crewos.workers.document_task",
+    ],
 )
 
 
