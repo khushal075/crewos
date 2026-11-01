@@ -1329,6 +1329,8 @@ crewos/ingestion/
   document_parser.py      text-extraction interface and parse error
   document_store.py       tenant-scoped storage interface and lifecycle errors
   service.py              preparation orchestration
+  document_ingestion_facade.py  public authorization and lifecycle logging
+  document_processing_coordinator.py  internal preparation/chunking/storage sequence
   bootstrap.py            constructs preparation and storage adapters
   adapters/plain_text.py  UTF-8 extraction implementation
   adapters/sqlite_document_store.py  local transactional snapshot storage
@@ -1342,10 +1344,11 @@ adapter or implementation files. An architecture test checks this boundary.
 Earlier document-related import paths remain thin compatibility re-exports;
 there is one implementation of each contract and behavior.
 
-This is the initial module boundary. An authenticated ingestion use case,
-automatic chunking/storage coordination, version assignment, ingestion queue, and
-retrieval/indexing integration remain planned. Existing API routes and Celery
-workers are not connected to preparation yet. Separate worker processes can
+`DocumentIngestionFacade` now provides authorized new-document creation and
+lifecycle logging. Its internal `DocumentProcessingCoordinator` sequences
+preparation, chunking, and storage. Authentication/transport integration,
+updates/version advancement, ingestion queues, and retrieval/indexing remain
+planned. Existing API routes and Celery workers are not connected to ingestion yet. Separate worker processes can
 later execute this module without introducing a network service boundary.
 
 The first ingestion increment is `DocumentInput` in
@@ -1358,8 +1361,8 @@ later chunk offsets. Titles and source labels are trimmed.
 
 The source reference is a provenance label only: it does not fetch a URL, prove
 correctness, or grant access. Client-supplied tenant identity, document IDs, and
-permissions are rejected. A later ingestion use case must obtain tenant identity
-from authenticated context and assign document identity on the backend.
+permissions are rejected. The ingestion facade obtains tenant identity
+from caller-established authenticated context; the processing coordinator assigns document identity on the backend.
 Validation does not make document content trusted instructions or prevent prompt
 injection. There is no ingestion endpoint, persistence, embeddings, or search
 yet. Chunking is available separately through `crewos.chunking`.
@@ -1422,25 +1425,66 @@ storage is implemented yet. The character-window algorithm is described below.
 The implemented preparation and planned ingestion flow is:
 
 ```text
-Already-loaded bytes -> injected parser -> DocumentInput validation
-Plain-text submissions -----------------> DocumentInput validation
-                                         -> authenticated ingestion use case (planned)
-                                         -> tenant-scoped storage (planned)
-                                         -> chunking (implemented separately) -> indexing -> authorized retrieval (planned)
+Caller-established trusted context -> DocumentIngestionFacade
+    -> document.create policy gate -> DocumentProcessingCoordinator
+    -> parser -> DocumentInput validation -> chunking
+    -> backend document ID/version 1 -> tenant-scoped storage
+    -> indexing and retrieval (planned)
 ```
 
 Run the checks with `poetry run pytest tests/test_document_input.py tests/test_document_parser.py tests/test_document_preparation.py tests/test_text_chunk.py tests/test_ingestion_module.py -q`.
 
-## Ingestion source command
+## Ingestion facade and processing coordinator
 
-`DocumentIngestionRequest` is an immutable in-process command for new document
-submissions. It requires raw `content` bytes (1 to 4,000,000), a bounded title,
-and an optional source label. It rejects tenant identity, permissions, document
-IDs, versions, and chunking settings. Shared title/source constraints are also
-used by `DocumentInput`. This command does not authenticate callers or expose
-an HTTP upload schema; authorized coordination is the next implementation step.
+`DocumentIngestionFacade` in `crewos/ingestion/document_ingestion_facade.py` is the
+public `ingest(request=..., context=...)` entry point. It checks `document.create`
+using the injected shared `PolicyEnforcedExecutor`, records safe lifecycle events,
+and delegates to the internal `DocumentProcessingCoordinator` in
+`crewos/ingestion/document_processing_coordinator.py`. The facade does not call
+parsers, chunkers, or storage directly.
 
-Run `poetry run pytest tests/test_document_ingestion_request.py -q`.
+The processing coordinator owns the sequence: revalidate the source command,
+prepare text, call chunking, assemble a backend UUID4/version-1 snapshot, and save
+it. It depends on component interfaces and has no authentication/policy or
+lifecycle-logging responsibility. It is not exported from the public package;
+callers must enter through the facade. This is a Python module boundary, not a
+sandbox preventing trusted code from importing internals.
+
+`build_plain_text_ingestion_facade(store=..., executor=..., chunking_options=...)`
+constructs both layers and wires their dependencies. The public `ingest` operation
+is unchanged; the draft class/setup names now explicitly distinguish facade from
+coordination. No separate network service is introduced.
+
+`DocumentIngestionRequest` is an immutable in-process command with required raw
+`content` bytes (1 to 4,000,000), a bounded title, and optional source reference.
+It rejects tenant identity, permissions, document IDs, versions, and chunking
+options. Options are server-configured on the processing coordinator. This bytes command is
+not an HTTP upload schema and does not bound buffering in a future upload layer.
+
+`ingest(request=..., context=...)` requires caller-established trusted
+`ToolExecutionContext`; it does not authenticate requests. The executor checks
+`document.create` before preparation, chunking, or storage. No grants are added
+to server configuration automatically. On permission success, the facade
+passes the trusted tenant scope to the coordinator, which prepares content,
+chunks text, assigns a UUID4/version 1, and saves the snapshot. The facade returns
+the stored version. Storage still enforces
+tenant-scoped operations independently. Document content remains untrusted data.
+
+Failures propagate: denied/failed policy runs no component, parse failure stops
+before chunking, chunking failure stops before storage, and storage failure
+returns no success result. Structured `document_ingestion_started`,
+`document_ingestion_succeeded`, and `document_ingestion_failed` events include
+safe tenant/operation IDs, timings, and error class names (plus document ID,
+version, and chunk count on success); text, title, source labels,
+and raw exception messages are excluded. These are local events, not new
+metrics or distributed traces.
+
+This increment creates new documents only. Each call assigns a new ID; repeated
+submissions are not idempotent, including a retry after an uncertain commit.
+Updates, request deduplication, authorized read/delete use cases, background
+execution, and API wiring remain future steps. Tests compose the actual parser,
+chunker, and SQLite store and separately verify authorization and failure gates.
+Run `poetry run pytest tests/test_document_ingestion_request.py tests/test_document_ingestion_facade.py tests/test_document_processing_coordinator.py tests/test_ingestion_module.py -q`.
 
 ## Stored-document boundary
 
@@ -1498,9 +1542,9 @@ tenant scope, rollback, competing writes, and complete logical deletion.
 
 This adapter supports a single host with a shared local file; multi-host or
 network-filesystem deployment requires another storage implementation. It does
-not authenticate callers: the later authorized ingestion use case must supply
-trusted tenant scope, assign document identity/version, and coordinate parsing,
-chunking, and storage. API routes, workers, configuration, and deployment volumes
+not authenticate callers: the ingestion facade requires trusted tenant
+context and checks `document.create`; its processing coordinator assigns a
+UUID4/version 1 and connects preparation, chunking, and storage. API routes, workers, configuration, and deployment volumes
 are not wired to document storage yet. Future external-index deletion and backup
 retention require their own lifecycle handling; local logical deletion is not
 secure media erasure or a guarantee about those external copies.

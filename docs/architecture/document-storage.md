@@ -1,15 +1,16 @@
 # Document version and storage contract
 
 The validated snapshot and storage interface are implemented by a single-host
-SQLite adapter. There is no authorized ingestion coordinator or ingestion
-endpoint connected to storage yet.
+SQLite adapter. An authorized ingestion facade delegates to an internal processing coordinator,
+which connects preparation, chunking, and storage in-process; API and worker integration remain future work.
 
 ```mermaid
 flowchart LR
-    Auth[Future authorized ingestion use case] --> Prep[Existing preparation service]
+    Auth[DocumentIngestionFacade: document.create policy gate] --> Coordinator[DocumentProcessingCoordinator]
+    Coordinator --> Prep[Existing preparation service]
     Prep --> Chunk[Existing chunking service]
     Chunk --> Snapshot[StoredDocumentVersion]
-    Auth --> Identity[Backend tenant scope, document ID and version]
+    Coordinator --> Identity[Trusted tenant scope, backend UUID4 and version 1]
     Identity --> Snapshot
     Snapshot --> Interface[DocumentStoreInterface]
     Interface --> DB[SQLiteDocumentStore: transactional snapshots]
@@ -82,11 +83,39 @@ Tests exercise real temporary files, reopen persistence, exact/latest reads,
 tenant isolation, competing connections, injected after-insert failure rollback,
 corruption detection, deletion, schema checks, and lock contention.
 
+## Facade and coordination
+
+`DocumentIngestionFacade` uses the shared policy executor before invoking the
+internal `DocumentProcessingCoordinator`. The coordinator alone sequences
+preparation, chunking, snapshot assembly, and storage. The caller must establish trusted
+context; this is authorization enforcement, not authentication. New-document
+creation requires `document.create`, uses the context's tenant, and assigns a
+UUID4/version 1 in backend code. `DocumentIngestionRequest` contains source bytes
+and metadata only; chunking options are server-configured.
+
+The facade and coordinator have separate responsibilities. The public facade
+provides the simplified authorized entry point and lifecycle logging; it has no
+parser, chunker, or storage dependency. The internal coordinator receives those
+components through constructor injection and has no policy dependency. Neither
+layer implements the GoF Bridge pattern. The facade is public; the coordinator
+is not exported. This import boundary supports modularity but is not a security
+sandbox for code already running inside the application.
+
+Facade lifecycle events include tenant/operation IDs and elapsed time. Successful
+events also include document ID, version, and chunk count; failures include the
+exception class only. Source content, titles, labels, and raw exception messages
+are excluded. The shared policy executor logs policy denial/evaluation failure
+before processing begins.
+
+The flow creates new documents only and provides no submission idempotency.
+Every successful call creates a new ID; retrying after uncertain persistence can
+create a duplicate. Version updates, deduplication, read/delete authorization,
+and asynchronous scheduling are future use cases. Low-level storage remains
+protected by tenant-scoped SQL but cannot establish caller authentication.
+
 ## Next implementation
 
-Build the authorized ingestion coordinator around the existing parser, chunker,
-and storage public boundaries. It must establish tenant scope and permissions,
-assign document identity/version, and decide how to handle conflicts and retries.
-Then add transport/background execution and later retrieval against an explicit
-read/search boundary. No API/worker routes, environment settings, or container
-volumes are added for document storage in this increment.
+Add document update/version-conflict handling and authorized lifecycle operations,
+then transport/background execution. Retrieval will later use an explicit
+read/search boundary. No API/worker routes, environment grants, or container
+volumes are added for ingestion in this increment.

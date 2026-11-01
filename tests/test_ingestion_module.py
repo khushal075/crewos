@@ -93,6 +93,8 @@ def test_other_modules_use_the_public_ingestion_boundary():
                     "contracts",
                     "document_parser",
                     "document_store",
+                    "document_ingestion_facade",
+                    "document_processing_coordinator",
                     "service",
                 }
                 for name in names
@@ -115,3 +117,37 @@ def test_ingestion_core_does_not_import_adapters_or_other_platform_modules():
             if level or (module.startswith("crewos") and module not in allowed):
                 violations.append(f"{filename}: unexpected dependency {module}")
     assert not violations, "\n".join(violations)
+
+
+def test_processing_coordinator_has_no_policy_or_transport_dependencies():
+    root = Path(__file__).resolve().parents[1] / "crewos" / "ingestion"
+    allowed = {
+        "crewos.ingestion.contracts",
+        "crewos.ingestion.document_store",
+        "crewos.ingestion.service",
+        "crewos.chunking",
+    }
+    for module, level, names in imports(root / "document_processing_coordinator.py"):
+        assert not level
+        assert not module.startswith("crewos") or module in allowed
+
+
+def test_ingestion_facade_has_no_parser_chunker_or_database_dependencies():
+    root = Path(__file__).resolve().parents[1] / "crewos" / "ingestion"
+    allowed = {
+        "crewos.ingestion.contracts",
+        "crewos.ingestion.document_processing_coordinator",
+        "crewos.application.dtos.tool_execution_context",
+        "crewos.application.services.policy_executor",
+    }
+    for module, level, names in imports(root / "document_ingestion_facade.py"):
+        assert not level
+        assert not module.startswith("crewos") or module in allowed
+
+
+def test_processing_coordinator_is_not_exported_as_a_public_authorized_entry_point():
+    import crewos.ingestion as ingestion
+
+    assert "DocumentIngestionFacade" in ingestion.__all__
+    assert "DocumentProcessingCoordinator" not in ingestion.__all__
+    assert not hasattr(ingestion, "DocumentProcessingCoordinator")
