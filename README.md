@@ -1324,9 +1324,10 @@ separate public `crewos.chunking` module. Current layout:
 
 ```text
 crewos/ingestion/
-  __init__.py             public contracts, ports, service, and setup function
+  __init__.py             public contracts, interfaces, service, and setup function
   contracts.py            input, stored versions, compatibility chunk export
-  ports.py                parser/storage interfaces and shared errors
+  document_parser.py      text-extraction interface and parse error
+  document_store.py       tenant-scoped storage interface and lifecycle errors
   service.py              preparation orchestration
   bootstrap.py            wires the supported plain-text strategy
   adapters/plain_text.py  UTF-8 extraction implementation
@@ -1334,7 +1335,7 @@ crewos/ingestion/
 
 `build_plain_text_preparation()` is the composition root: the setup function that
 constructs the concrete parser and injects it into the preparation service.
-Alternatively, callers can inject an implementation of the public parser port
+Alternatively, callers can inject an implementation of the public parser interface
 into `DocumentPreparationService`. Other modules must not import the private
 adapter or implementation files. An architecture test checks this boundary.
 Earlier document-related import paths remain thin compatibility re-exports;
@@ -1363,9 +1364,9 @@ injection. There is no ingestion endpoint, persistence, embeddings, or search
 yet. Chunking is available separately through `crewos.chunking`.
 
 Text extraction uses an application-owned `DocumentParserInterface`
-(`crewos/ingestion/ports.py`). Its `parse(content: bytes)
+(`crewos/ingestion/document_parser.py`). Its `parse(content: bytes)
 -> str` boundary accepts already-loaded bytes and returns untrusted text for
-`DocumentInput` validation. This is a port-and-adapter boundary: callers can
+`DocumentInput` validation. This separates interfaces from implementations: callers can
 receive a parser through dependency injection, while format-specific decoding
 stays in infrastructure. PDF, Word, and HTML adapters are future work; none are
 implemented or automatically selected yet.
@@ -1468,7 +1469,7 @@ Contract checks: `poetry run pytest tests/test_stored_document_contract.py -q`.
 
 `crewos.chunking` is a stateless module within the monolith. It owns `TextChunk`,
 `ChunkingOptions`, `ChunkingRequest`, `ChunkingResult`, the `ChunkerInterface`
-strategy port, and `ChunkingService`. Existing ingestion and application chunk
+strategy interface, and `ChunkingService`. Existing ingestion and application chunk
 imports remain compatible re-exports. Callers use the public package rather
 than importing its implementation files.
 

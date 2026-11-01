@@ -10,8 +10,8 @@ flowchart LR
     Ingestion --> Caller[Ingestion caller]
     Caller --> Public[Public chunking interface]
     Public --> Service[ChunkingService]
-    Service --> Port[ChunkerInterface]
-    Port --> Strategy[CharacterWindowChunker]
+    Service --> Interface[ChunkerInterface]
+    Interface --> Strategy[CharacterWindowChunker]
     Strategy --> Result[Validated chunks and strategy metadata]
     Result --> Future[Future tenant-scoped storage and indexing]
 ```
@@ -19,7 +19,7 @@ flowchart LR
 ## Responsibilities
 
 - `contracts.py`: immutable request, options, result, and text-span schemas.
-- `ports.py`: interchangeable splitting strategy and output-limit error.
+- `text_chunker.py`: interchangeable splitting strategy and output-limit error.
 - `service.py`: orchestrates splitting and checks source fidelity and coverage.
 - `strategies/character_window.py`: deterministic fixed-window splitting.
 - `bootstrap.py`: constructs the default service and operator-controlled limits.

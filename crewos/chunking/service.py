@@ -1,7 +1,7 @@
 """Application entry point for stateless, resource-bounded chunking."""
 
 from crewos.chunking.contracts import ChunkingRequest, ChunkingResult
-from crewos.chunking.ports import ChunkerInterface, ChunkingLimitExceeded
+from crewos.chunking.text_chunker import ChunkerInterface, ChunkingLimitExceeded
 
 
 class ChunkingService:

@@ -2,7 +2,7 @@
 
 from crewos.chunking.bootstrap import build_character_chunking
 from crewos.chunking.contracts import ChunkingOptions, ChunkingRequest, ChunkingResult, TextChunk
-from crewos.chunking.ports import ChunkerInterface, ChunkingLimitExceeded
+from crewos.chunking.text_chunker import ChunkerInterface, ChunkingLimitExceeded
 from crewos.chunking.service import ChunkingService
 
 __all__ = [

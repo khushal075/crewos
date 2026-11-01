@@ -1,7 +1,7 @@
 """Deterministic fixed-character windows with bounded overlap expansion."""
 
 from crewos.chunking.contracts import ChunkingRequest, TextChunk
-from crewos.chunking.ports import ChunkingLimitExceeded
+from crewos.chunking.text_chunker import ChunkingLimitExceeded
 
 
 class CharacterWindowChunker:

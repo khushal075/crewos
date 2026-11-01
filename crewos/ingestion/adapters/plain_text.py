@@ -1,6 +1,6 @@
 """Bounded UTF-8 adapter; no filesystem, network, or document SDK dependency."""
 
-from crewos.ingestion.ports import DocumentParseError
+from crewos.ingestion.document_parser import DocumentParseError
 
 
 class PlainTextDocumentParser:

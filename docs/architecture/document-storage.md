@@ -1,7 +1,7 @@
 # Document version and storage contract
 
 This increment defines a validated snapshot and a storage interface in
-`crewos/ingestion/ports.py`. It does not
+`crewos/ingestion/document_store.py`. It does not
 implement persistence or expose an ingestion endpoint.
 
 ```mermaid

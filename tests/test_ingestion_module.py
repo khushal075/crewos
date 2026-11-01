@@ -86,7 +86,16 @@ def test_other_modules_use_the_public_ingestion_boundary():
             elif module.startswith("crewos.ingestion."):
                 violations.append(f"{relative}: private ingestion import {module}")
             elif module == "crewos.ingestion" and any(
-                name in {"adapters", "bootstrap", "contracts", "ports", "service"} for name in names
+                name
+                in {
+                    "adapters",
+                    "bootstrap",
+                    "contracts",
+                    "document_parser",
+                    "document_store",
+                    "service",
+                }
+                for name in names
             ):
                 violations.append(f"{relative}: imports private ingestion module")
     assert not violations, "\n".join(violations)
@@ -94,9 +103,14 @@ def test_other_modules_use_the_public_ingestion_boundary():
 
 def test_ingestion_core_does_not_import_adapters_or_other_platform_modules():
     root = Path(__file__).resolve().parents[1] / "crewos" / "ingestion"
-    allowed = {"crewos.ingestion.contracts", "crewos.ingestion.ports", "crewos.chunking"}
+    allowed = {
+        "crewos.ingestion.contracts",
+        "crewos.ingestion.document_parser",
+        "crewos.ingestion.document_store",
+        "crewos.chunking",
+    }
     violations = []
-    for filename in ("contracts.py", "ports.py", "service.py"):
+    for filename in ("contracts.py", "document_parser.py", "document_store.py", "service.py"):
         for module, level, names in imports(root / filename):
             if level or (module.startswith("crewos") and module not in allowed):
                 violations.append(f"{filename}: unexpected dependency {module}")

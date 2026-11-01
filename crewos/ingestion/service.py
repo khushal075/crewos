@@ -1,7 +1,7 @@
 """Prepare untrusted document content using an injected parsing strategy."""
 
 from crewos.ingestion.contracts import DocumentInput
-from crewos.ingestion.ports import DocumentParserInterface
+from crewos.ingestion.document_parser import DocumentParserInterface
 
 
 class DocumentPreparationService:
