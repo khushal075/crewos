@@ -1170,6 +1170,44 @@ Missing/cross-tenant run registration, malformed jobs, and ownership storage err
 
 Tests execute the real adapter/loop/dispatcher/policy/reader with controlled model/backend responses and in-memory ownership. They verify submission ID correlation, scope restoration, ownership-before-inference, worker-loaded grants, rejected payload grants, decision budgets, and separate ownership checks for the tool's target task. They do not demonstrate broker delivery or live queued agent execution.
 
+## Celery agent transport adapter (submission pending)
+
+`crewos.workers.agent_task.run_agent` is registered with the existing Celery application and explicitly included for worker discovery alongside the fixed-workflow task. It validates `AgentRunJob`, requires Celery's delivery ID to equal the canonical submitted run ID, and requires delivery metadata's routing key to match `tenant_queue(job.tenant_id)`. Missing/mismatched metadata is rejected before calling the runner. A future publisher must use that run ID as `task_id` and the matching tenant queue; direct ad-hoc `.run()` invocation without request metadata is unsupported.
+
+After transport validation, the existing runner verifies ownership before constructing the model, builds worker-loaded context, and executes the loop. The adapter returns the final-answer decision as a JSON-ready dictionary. It emits received/completed/failed events with run and tenant identity; failure logs include only the exception class. Validation failures before acceptance propagate without an accepted-job event. Celery's own backend/error logging behavior is separate from these sanitized application events.
+
+The agent task has no automatic retries and does not reuse the inference-only retry behavior of the existing fixed workflow. However, global late acknowledgments and broker behavior can still permit redelivery; disabled retries do not establish exactly-once execution. Durable claims, attempt identity, deduplication, and safe action replay remain pending. The current registered tool is read-only. Worker processes must restart to load the newly included module and configuration.
+
+Tests exercise the task wrapper with controlled Celery request metadata, verifying registration, JSON output, delivery mismatch rejection, malformed payload rejection, and unchanged failure propagation without retries. They do not validate real broker routing or a live queued model run. The new `/agents/runs` submission route below publishes this task; `/domain/run` still submits the fixed workflow. Worker metrics remain process-local and are not aggregated by a separate API metrics endpoint.
+
+## Authenticated queued agent submission
+
+`POST /agents/runs` accepts only `message` and optional positive integer `max_decisions` (default 5). It uses real tenant authentication and server-assigned context, requires the exact permission `agent_run.create`, generates a UUIDv4 run ID, registers ownership before publication, and submits `run_agent` with that ID and the tenant queue. Successful publication returns HTTP 202 with `{"agent_run_id":"UUID","status":"queued"}`. This response means the publisher returned successfully, not that a worker has started or completed execution.
+
+Configure creation separately from tool access, for example:
+
+```dotenv
+TENANT_PERMISSIONS={"tenant_a":["agent_run.create","agent_task.read"]}
+```
+
+Only grant the permissions intended for that tenant; preserve other tenant entries when editing local configuration. Restart API/worker processes after configuration or task-registration changes. Workers use their own loaded grants for tool execution; submission does not carry grants in the job. `agent_run.create` is checked at submission, while each tool's action permission is checked during execution. This is not instant revocation of previously accepted jobs.
+
+```bash
+curl -X POST http://localhost:8001/agents/runs \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: tenant_a" \
+  -H "Authorization: Bearer $CREWOS_TENANT_TOKEN" \
+  -d '{"message":"Use get_agent_task_status to inspect task EXISTING_TASK_ID.","max_decisions":5}'
+```
+
+The example uses port 8001; use the port where your CrewOS API actually runs. The environment token is a client credential matching configured tenant keys; it is not the model provider API key. The `agent_run_id` returned here identifies this new agent execution, while `EXISTING_TASK_ID` identifies the separate task it may inspect.
+
+Poll the existing `GET /domain/status/{task_id}` using the returned run ID as `task_id`. On success its result contains the JSON final-answer decision. This polling route retains its existing tenant authentication and ownership behavior; it does not acquire the new tool permission gate or a new response schema. No duplicate status endpoint is introduced. Worker time limits, result/ownership TTLs, and known Celery `PENDING` ambiguity still apply. No HTTP idempotency key or durable submission outbox is implemented.
+
+Missing credentials return 401 (with required tenant header supplied); invalid credentials or denied creation return 403; invalid request data returns 422. Policy/storage failure returns 503; unexpected publication failure returns 500 with generic detail. Ambiguous publication failure retains the ownership registration because the broker may already have received the work. Denial or failed policy evaluation never registers or publishes. Publisher retries are disabled, but this does not prevent every duplicate or redelivery scenario.
+
+Tests cover HTTP authentication, policy, registration-before-publication, correct payload/routing, forged fields, storage failure, ambiguous publication, and route inclusion with a controlled publisher. These are not real broker or live-model tests. Actual queued agent delivery and worker-process metrics export remain the next integration checks.
+
 ## Implemented versus planned
 
 | Area | Current state |
@@ -1196,7 +1234,7 @@ Tests execute the real adapter/loop/dispatcher/policy/reader with controlled mod
 | Text-JSON decision adapter | Implemented with controlled-response tests; live-model and entrypoint integration pending |
 | Agent loop assembly | Adapter and protected dispatcher connected by setup factory; controlled integration tests only |
 | Local CLI demo | Authenticated entry point implemented and tested with controlled dependencies; live-run evidence pending |
-| Queued agent-job contract | Payload and worker-side verification/runner implemented; Celery delivery and submission integration pending |
+| Queued agent execution | Payload, runner, Celery adapter, and authenticated submission implemented; real broker/live queued validation pending |
 | Dynamic model-chosen tool calls | One successful local tool-choice path observed; broader evaluation pending |
 | Bounded observation/action agent loop | Sequential loop implemented and tested with scripted decisions; real-provider and entrypoint integration pending |
 | Durable run state, checkpoints, and resume | Planned |
