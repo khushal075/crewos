@@ -15,18 +15,22 @@ services:
   backend:
     build: .
     env_file: [".env.local"]
+    volumes: ["agent_run_data:/app/var"]
     environment:
       REDIS_BROKER_URL: redis://redis:6379/0
       REDIS_RESULT_BACKEND: redis://redis:6379/1
+      AGENT_RUN_DB_PATH: /app/var/agent_runs.sqlite3
     ports: ["127.0.0.1:8000:8000"]
     depends_on:
       redis: {condition: service_healthy}
   worker:
     build: .
     env_file: [".env.local"]
+    volumes: ["agent_run_data:/app/var"]
     environment:
       REDIS_BROKER_URL: redis://redis:6379/0
       REDIS_RESULT_BACKEND: redis://redis:6379/1
+      AGENT_RUN_DB_PATH: /app/var/agent_runs.sqlite3
     command: ["worker"]
     healthcheck: {disable: true}
     stop_grace_period: 300s
@@ -35,3 +39,4 @@ services:
 volumes:
   redis_data:
   ollama_data:
+  agent_run_data:

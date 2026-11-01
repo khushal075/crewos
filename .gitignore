@@ -12,3 +12,9 @@ htmlcov/
 .pytest_cache/
 dist/
 !.env.local.example
+
+# Local durable runtime data (contains user content)
+var/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm

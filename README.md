@@ -508,7 +508,7 @@ SDK-level retries are disabled. Background retry policy belongs to Celery; synch
 
 Workers use one prefetched task per concurrency slot, late acknowledgment, a 240-second soft time limit, and a 270-second hard time limit. Support and shutdown behavior depend on Celery's pool and platform. The broker visibility timeout is 3600 seconds. Compose and worker manifests allow 300 seconds for graceful shutdown, but forced termination, host failure, or an in-flight remote request can still create uncertainty.
 
-Late acknowledgment does not guarantee task redelivery under every worker-loss scenario. There are no durable per-step checkpoints, cancellation API, external-action idempotency mechanism, or exactly-once guarantee. These are agent-runtime roadmap items. Queue expiry is not a guarantee that started work stops at the expiry time.
+Late acknowledgment does not guarantee task redelivery under every worker-loss scenario. The fixed workflow has no durable per-step checkpoints or cancellation API. The agent path now provides the local durable/cancellation controls described below; external-action idempotency and exactly-once guarantees are not implied. Queue expiry is not a guarantee that started work stops at the expiry time.
 
 ## Tests
 
@@ -946,7 +946,7 @@ The task-status tool is an internal operation exercised by the bounded loop in t
 
 Validate the union with `TypeAdapter(ModelDecision).validate_python(payload)` or `.validate_json(text)`. Successful parsing establishes structure only: the tool may be unregistered, arguments may fail the selected tool schema, authorization may deny execution, and a final answer may be incorrect. These are model proposals, not permission grants or verified facts. One decision represents one proposed tool call or final answer; provider batches and call identifiers require explicit adapter handling later.
 
-This is an internal application contract, not a requirement that each provider return this exact wire format. Provider adapters will translate their responses into it. The bounded loop below consumes these contracts with scripted decisions in tests; no real model adapter or existing workflow produces them yet. Refusals, malformed outputs, execution budgets, and tool-result observations still need explicit runtime handling.
+This is an internal application contract, not a requirement that each provider return this exact wire format. Provider adapters will translate their responses into it. The bounded loop and text-JSON adapter below consume/produce these contracts, including the verified live path. Refusals, malformed outputs, budgets, and observations have explicit handling; provider-native formats remain separate work.
 
 ## Decision-provider interface
 
@@ -957,7 +957,7 @@ Inputs in `decision_request.py` separate conversation data from executable tool 
 - `DecisionMessage` carries a role (`system`, `user`, `assistant`, or `tool`) and nonempty text. Content formatting is preserved. These fields describe conversation structure; a role label does not prove provenance, and retrieved/tool text must not acquire system authority. Trusted runtime code must construct the message sequence.
 - `ToolSchema` carries a name, description, and JSON-shaped `parameters` dictionary. Parameters can come from a registered Pydantic argument model's `model_json_schema()`. It contains no handler or execution context. JSON-shaped validation does not establish that an arbitrary parameters dictionary is a valid or provider-supported JSON Schema.
 
-The adapter will translate these inputs to provider formats and validate its returned `ModelDecision`. Type annotations and the abstract interface do not themselves validate a concrete adapter's return. The application retains ownership of trusted context, dispatch, authorization, and loop budgets. Publishing a tool schema grants no execution permission. Refusal, transport failure, and malformed responses must remain distinguishable from a successful final answer; concrete error types and runtime handling remain pending.
+The adapter will translate these inputs to provider formats and validate its returned `ModelDecision`. Type annotations and the abstract interface do not themselves validate a concrete adapter's return. The application retains ownership of trusted context, dispatch, authorization, and loop budgets. Publishing a tool schema grants no execution permission. Refusal, transport failure, and malformed responses must remain distinguishable from a successful final answer; the text-JSON adapter exposes refusal/response error types and the runtime applies bounded recovery as described below.
 
 Messages currently provide text-level conversation data only. Native provider tool-call identifiers, batched calls, multimodal messages, streaming, and usage metadata are not represented by this first contract and require explicit adaptation or later contract extension. It is not a complete cross-provider chat protocol. Tests cover input shapes and separation of model metadata from executable handlers; they do not demonstrate model inference.
 
@@ -979,7 +979,7 @@ Messages + tool schemas -> Provider -> Validate decision
                                                  Next decision (budgeted)
 ```
 
-`max_decisions` is a positive integer (default 5). Each provider call consumes one decision, including a final answer. At most that many tool calls can execute; if the last permitted decision calls a tool, it executes and then the loop raises `DecisionLimitExceeded` without another provider call. This limit does not undo work, bound the duration of an individual call, or provide a token/cost/deadline budget. Timeouts, cancellation, action budgets, and human approvals remain pending; the current registered tool is read-only.
+`max_decisions` is a positive integer (default 5). Each provider call consumes one decision, including a final answer. At most that many tool calls can execute; if the last permitted decision calls a tool, it executes and then the loop raises `DecisionLimitExceeded` without another provider call. This limit does not undo work, bound the duration of an individual call, or provide a token/cost/deadline budget. Separate deadline, cancellation, resource-admission, and recovery controls are described below. Human approvals and write-tool safety contracts remain pending; the current registered tool is read-only.
 
 Unknown tools, invalid arguments/decisions, denied permissions, provider failures, and execution errors stop the invocation by propagating the error. They are not converted into fabricated answers. Missing/other-tenant tasks instead produce the reader's normal `unavailable` observation. Tool observations remain untrusted data, not system instructions; this role distinction alone is not a complete prompt-injection defense. Final-answer validation does not verify factual correctness.
 
@@ -991,7 +991,7 @@ Tests implement `ScriptedProvider` only in the test suite. They verify decision 
 
 The adapter expects one plain JSON object in text content, validated against `ModelDecision`. It rejects malformed JSON, Markdown-wrapped output, content blocks, and native tool-call responses with `DecisionResponseError`. Explicit `additional_kwargs.refusal` metadata produces `DecisionRefusedError`; this is not universal refusal detection across providers. Transport/model errors propagate without adapter-added retries. The injected client's own timeout and retry configuration still applies. No prompt/response logging or model credentials are added here.
 
-This first adapter uses prompted JSON, not provider-enforced structured output or native function calling. Schema instructions do not guarantee valid responses, permitted actions, correct tool choice, or factual answers. Registry, argument, policy, and ownership checks still apply after parsing. Native provider tool IDs, batches, multimodal output, token accounting, capability negotiation, and error recovery remain separate work.
+This first adapter uses prompted JSON, not provider-enforced structured output or native function calling. Schema instructions do not guarantee valid responses, permitted actions, correct tool choice, or factual answers. Registry, argument, policy, and ownership checks still apply after parsing. Native provider tool IDs, batches, multimodal output, and capability negotiation remain separate work. The reliability section adds estimated admission, available usage reconciliation, and bounded error recovery.
 
 Controlled-response tests verify formatting, parsing, refusal/error behavior, and separation of observations from system instructions. They do not show a real model choosing tools or establish provider compatibility. A caller can inject an existing configured chat model; no existing endpoint, worker, or fixed workflow automatically uses this adapter. The setup factory below now assembles the adapter and loop; a live-model run remains pending.
 
@@ -1166,7 +1166,7 @@ Queue payload -> Validate contract -> Verify registered run ownership
 
 Run ownership authorizes the job's tenant association, not access to every tool target. Each tool still evaluates its action permission and checks target resource ownership independently. Missing grants can allow a model decision request but block protected tool execution; they are not a separate blanket prohibition on inference. No submission-time permission list is accepted. Configuration is loaded by each process, so this is not instant centralized revocation. The runner restores the previous tenant ContextVar scope on normal return or error.
 
-Missing/cross-tenant run registration, malformed jobs, and ownership storage errors stop before model construction. Execution errors propagate; the runner adds no retry policy and no external-action replay guarantees. Restricted broker publishers and explicit Celery transport checks remain necessary. Registration is reused from the existing bounded ownership store; it is not a durable agent-run history or checkpoint system.
+Missing/cross-tenant run registration, malformed jobs, and ownership storage errors stop before model construction. Execution errors propagate; the runner adds no retry policy and no external-action replay guarantees. Restricted broker publishers and explicit Celery transport checks remain necessary. New submissions now use the durable agent-run store described in the reliability section; bounded Redis ownership remains a compatibility aid.
 
 Tests execute the real adapter/loop/dispatcher/policy/reader with controlled model/backend responses and in-memory ownership. They verify submission ID correlation, scope restoration, ownership-before-inference, worker-loaded grants, rejected payload grants, decision budgets, and separate ownership checks for the tool's target task. They do not demonstrate broker delivery or live queued agent execution.
 
@@ -1202,7 +1202,7 @@ curl -X POST http://localhost:8001/agents/runs \
 
 The example uses port 8001; use the port where your CrewOS API actually runs. The environment token is a client credential matching configured tenant keys; it is not the model provider API key. The `agent_run_id` returned here identifies this new agent execution, while `EXISTING_TASK_ID` identifies the separate task it may inspect.
 
-Poll the existing `GET /domain/status/{task_id}` using the returned run ID as `task_id`. On success its result contains the JSON final-answer decision. This polling route retains its existing tenant authentication and ownership behavior; it does not acquire the new tool permission gate or a new response schema. No duplicate status endpoint is introduced. Worker time limits, result/ownership TTLs, and known Celery `PENDING` ambiguity still apply. No HTTP idempotency key or durable submission outbox is implemented.
+Poll the existing `GET /domain/status/{task_id}` using the returned run ID as `task_id`. On success its result contains the JSON final-answer decision. This polling route retains its existing tenant authentication and ownership behavior; it does not acquire the new tool permission gate or a new response schema. No duplicate status endpoint is introduced. Worker time limits, result/ownership TTLs, and known Celery `PENDING` ambiguity still apply. An optional idempotency key is now supported; the reliability section explains safe republishing. No autonomous durable outbox relay is implemented.
 
 Missing credentials return 401 (with required tenant header supplied); invalid credentials or denied creation return 403; invalid request data returns 422. Policy/storage failure returns 503; unexpected publication failure returns 500 with generic detail. Ambiguous publication failure retains the ownership registration because the broker may already have received the work. Denial or failed policy evaluation never registers or publishes. Publisher retries are disabled, but this does not prevent every duplicate or redelivery scenario.
 
@@ -1230,7 +1230,7 @@ Regression tests run Celery's actual failure tracer for both task types with a c
 
 An exhausted budget raises `AgentDeadlineExceeded`, emits terminal `agent_run_failed` with reason/phase `deadline`, and records a run metric with outcome `deadline`. Model/tool calls that returned successfully before the checkpoint retain their operation-success measurements even if their result arrived too late for the run to continue. A late final answer is not returned as run success. The decision limit remains an independent budget. Invalid deadline settings fail construction before model invocation.
 
-This is cooperative stopping at execution boundaries, not a hard wall-clock cap: a synchronous in-flight request may continue beyond the deadline until its own timeout or return. It does not cancel remote work, undo tool effects, reserve enough time for a complete next call, or propagate remaining budget into tool network timeouts. Model timeout propagation is implemented in the following section. Celery's existing soft/hard limits provide a separate outer process guard. The CLI and queued runner currently use the setup default; no client-controlled deadline field or CLI flag is added by this step. Distributed deadline propagation and cancellation are subsequent work.
+This is cooperative stopping at execution boundaries, not a hard wall-clock cap: a synchronous in-flight request may continue beyond the deadline until its own timeout or return. It does not cancel remote work, undo tool effects, reserve enough time for a complete next call, or undo already-started external work. Model timeout propagation and isolated Redis tool limits are implemented in the following sections. Celery's existing soft/hard limits provide a separate outer process guard. The CLI and queued runner currently use the setup default; no client-controlled deadline field or CLI flag is added by this step. The reliability section adds durable cooperative cancellation; hard remote cancellation and broader distributed deadline propagation remain separate work.
 
 Tests use a controlled monotonic clock to verify expiry before inference, late model decisions/final answers, late tool observations, deadline logging/metrics, normal completion, and invalid configuration. No sleeping or live model calls are used for these checks.
 
@@ -1240,7 +1240,7 @@ Before requesting each decision, the loop computes the positive remaining elapse
 
 For example, with a 30-second configured call cap and 4 seconds remaining in the run, the next request receives a 4-second timeout. With 90 seconds remaining, it receives 30 seconds. The loop recomputes remaining time before each decision rather than reusing the initial run budget. Invalid/non-finite/nonpositive timeout allowances fail before inference. No new SDK retries are enabled; the existing model builder retains `max_retries=0`.
 
-The installed LangChain OpenAI-compatible client forwards the per-call `timeout` to the SDK request. A controlled HTTP-transport test verifies the timeout actually reaches connect/read/write/pool settings, not merely a mocked adapter method. A network timeout is not a strict total request deadline: transport phases, reading behavior, local prompt/response processing, and remote execution may still outlive the allowance. Post-call deadline checks remain necessary, and timeouts do not establish remote cancellation. Tool timeout propagation and cancellation remain pending. Provider/transport timeout exceptions remain execution failures; they are not automatically reclassified as deadline exhaustion or retried.
+The installed LangChain OpenAI-compatible client forwards the per-call `timeout` to the SDK request. A controlled HTTP-transport test verifies the timeout actually reaches connect/read/write/pool settings, not merely a mocked adapter method. A network timeout is not a strict total request deadline: transport phases, reading behavior, local prompt/response processing, and remote execution may still outlive the allowance. Post-call deadline checks remain necessary, and timeouts do not establish remote cancellation. The reliability section adds Redis tool timeout propagation and cooperative cancellation. Provider/transport timeout exceptions remain execution failures rather than automatically becoming deadline exhaustion; eligible transient failures can consume the bounded recovery allowance.
 
 Tests cover shrinking allowances between decisions, configured call caps, invalid values, and the installed client-to-HTTP transport path without contacting a live provider. Reference: [official OpenAI Python SDK timeout documentation](https://developers.openai.com/api/reference/python).
 
@@ -1250,9 +1250,22 @@ Tests cover shrinking allowances between decisions, configured call caps, invali
 
 This fixes the result-backend leg that previously had no explicit socket timeout in application configuration. A Redis timeout remains an execution/storage error, never a fabricated `pending`, `unknown`, or `unavailable` lookup. Existing HTTP adapters map Redis errors to service-unavailable responses. Ownership is still checked before backend access.
 
-These are per-socket limits, not a shared remaining tool deadline. A lookup can involve multiple network operations; connection and response waits do not form a single total-duration guarantee. Remaining run budget is not yet passed into each Redis operation. Broker connectivity, Redis result-write retry behavior, network/DNS behavior, and Celery's outer task limits are separate concerns. Disabling the options above does not claim that all Redis/Celery operations have no retries.
+These are per-socket limits, not a shared remaining tool deadline. A lookup can involve multiple network operations; connection and response waits do not form a single total-duration guarantee. The later reliability milestone now applies remaining-time caps through isolated tool clients; standalone clients retain their configured socket limits. Broker connectivity, Redis result-write retry behavior, network/DNS behavior, and Celery's outer task limits are separate concerns. Disabling the options above does not claim that all Redis/Celery operations have no retries.
 
 Tests inspect the actual Celery Redis client's connection-pool options without making network calls, verify ownership-client configuration, reject invalid settings, and exercise timeout propagation at ownership/backend boundaries. Live Redis outage testing and per-tool remaining-budget propagation remain pending.
+
+## Runtime reliability milestone
+
+The remaining point-4 runtime controls are implemented for the current local/single-host deployment. See [Runtime reliability](docs/architecture/runtime-reliability.md) for the complete contract, configuration, state transitions, deployment boundary, and test evidence.
+
+- Durable SQLite run records and checkpoint/attempt history survive Celery result expiry. API and workers must share the same local file; Compose now shares `/app/var`. This is not a multi-host database implementation.
+- Durable status, cooperative cancel, and explicit resume use separate `agent_run.read`, `agent_run.cancel`, and `agent_run.resume` permissions. The original submission permission remains `agent_run.create`.
+- Transactional leases, heartbeats, and fencing prevent active duplicate execution and stale result/checkpoint writes. Idempotency-key retries reuse logical identity; uncertain sends can be republished safely under that identity. Broker messaging is not exactly once.
+- Checkpoints preserve observations, counters, reservations, and the original deadline. Replay-safe reads may resume; uncertain writes default to blocked/manual review. Completed redelivery returns saved output without inference.
+- Model requests use estimated-token/cost admission, output limits, and reported-usage reconciliation when available. Cost controls require configured rates and do not guarantee an external invoice cap.
+- Read-tool Redis calls get isolated timeout settings capped by remaining run time. Bounded model/argument repair and eligible read-tool recovery consume the original run's recovery/decision/resource budgets.
+
+These controls are verified with controlled tests and temporary databases. Earlier evidence documents describe the prior live queued run, not live validation of this new persistence/recovery implementation. Retained checkpoints contain user data; keep the database private, backed up, and outside Git. CLI-only runs remain ephemeral demonstrations; queued runs use the durable path.
 
 ## Implemented versus planned
 
@@ -1283,7 +1296,7 @@ Tests inspect the actual Celery Redis client's connection-pool options without m
 | Queued agent execution | Payload, runner, Celery adapter, and authenticated submission implemented; real broker/live queued validation pending |
 | Dynamic model-chosen tool calls | One successful local tool-choice path observed; broader evaluation pending |
 | Bounded observation/action agent loop | Live CLI/queued paths verified; decision count and cooperative elapsed-time budget implemented |
-| Durable run state, checkpoints, and resume | Planned |
+| Durable run state, checkpoints, and resume | SQLite single-host records, leases, checkpoints, and explicit resume implemented; shared multi-host adapter pending |
 | Scoped persistent memory | Planned; memory file is a placeholder |
 | MCP discovery and tool integration | Planned |
 | Evidence retrieval, hybrid search, and RAG evaluation | Planned |
@@ -1312,6 +1325,6 @@ When changing a feature, review its API contract, configuration, setup commands,
 
 API -> authenticated tenant scope -> ownership registration -> tenant queue -> Celery worker -> two-step LLM workflow -> Redis result -> authorized polling.
 
-Redis ownership is a bounded foundation, not the durable run/checkpoint architecture planned for agent execution. Domain code uses application-provided models; generation and embedding contracts will be strengthened during the agent-runtime phase. Memory and advanced retry/orchestration features must not be inferred from placeholder filenames.
+Redis ownership remains a bounded compatibility foundation; the agent runtime now has a separate SQLite single-host durable run/checkpoint store. A shared multi-host database adapter remains future deployment work. Domain code uses application-provided models; generation and embedding contracts will be strengthened during the agent-runtime phase. Memory and advanced retry/orchestration features must not be inferred from placeholder filenames.
 
 Next: a bounded agent loop with typed tool decisions, validated tool execution, completion criteria, and an observable step budget.
