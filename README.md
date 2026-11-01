@@ -1333,7 +1333,26 @@ Validation does not make document content trusted instructions or prevent prompt
 injection. There is no ingestion endpoint, persistence, chunking, embeddings,
 or search yet.
 
-Run the contract checks with `poetry run pytest tests/test_document_input.py -q`.
+Text extraction uses an application-owned `DocumentParserInterface`
+(`crewos/application/interfaces/document_parser.py`). Its `parse(content: bytes)
+-> str` boundary accepts already-loaded bytes and returns untrusted text for
+`DocumentInput` validation. This is a port-and-adapter boundary: callers can
+receive a parser through dependency injection, while format-specific decoding
+stays in infrastructure. PDF, Word, and HTML adapters are future work; none are
+implemented or automatically selected yet.
+
+`PlainTextDocumentParser` is the first adapter. It accepts strict UTF-8, removes
+an optional leading UTF-8 encoding marker, and preserves other text formatting.
+Its configurable source limit defaults to 4,000,000 bytes, checked before
+decoding; `DocumentInput` independently enforces the extracted character limit.
+Malformed encoding and excessive input raise `DocumentParseError` with generic
+messages. Parsers do not read files, fetch URLs, assign identity, or enforce
+application permissions. Source limits must also be enforced by a future upload
+layer before buffering; a parser check alone does not bound upload memory.
+Future complex parsers will need format-specific extraction, output, and time
+limits; the interface itself does not provide these guarantees.
+
+Run the checks with `poetry run pytest tests/test_document_input.py tests/test_document_parser.py -q`.
 
 ## Contributing and documentation
 
