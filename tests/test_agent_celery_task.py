@@ -82,3 +82,43 @@ def test_agent_task_is_registered_and_included_with_no_automatic_retry():
     )
     assert run_agent.max_retries == 0
     assert run_agent.autoretry_for == ()
+
+
+def test_busy_or_fenced_attempt_is_ignored_instead_of_overwriting_results():
+    from celery.exceptions import Ignore
+    from crewos.application.interfaces.run_store import RunConflict
+
+    with patch("crewos.workers.agent_task.execute_agent_job", side_effect=RunConflict("active")):
+        with pytest.raises(Ignore):
+            invoke(job())
+
+
+def test_ignored_duplicate_does_not_overwrite_active_backend_state():
+    from celery import Celery
+    from celery.app.trace import build_tracer
+    from crewos.application.interfaces.run_store import RunConflict
+
+    payload = job()
+    identifier = payload["agent_run_id"]
+    memory = Celery("duplicate-test", broker="memory://", backend="cache+memory://")
+    backend = memory.backend
+    backend.store_result(identifier, None, "STARTED")
+    task = run_agent._get_current_object()
+    with (
+        patch.object(task, "_backend", backend),
+        patch(
+            "crewos.workers.agent_task.execute_agent_job",
+            side_effect=RunConflict("active attempt"),
+        ),
+    ):
+        outcome = build_tracer(task.name, task, app=celery_app)(
+            identifier,
+            (payload,),
+            {},
+            request={
+                "id": identifier,
+                "delivery_info": {"routing_key": tenant_queue("tenant_a")},
+            },
+        )
+    assert outcome.info.state == "IGNORED"
+    assert backend.get_state(identifier) == "STARTED"

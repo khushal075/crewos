@@ -1,5 +1,7 @@
 """Celery transport adapter for registered agent jobs; no automatic retries."""
 
+from celery.exceptions import Ignore
+from crewos.application.interfaces.run_store import RunConflict, RunCancelled
 from crewos.application.dtos.agent_run_job import AgentRunJob
 from crewos.core.agent_job_runner import execute_agent_job
 from crewos.core.tenant import tenant_queue
@@ -31,6 +33,11 @@ def run_agent(self, payload: dict) -> dict:
         result = execute_agent_job(job.model_dump(mode="json"))
         logger.info({"event": "agent_job_completed", **fields})
         return result.model_dump(mode="json")
+    except (RunConflict, RunCancelled) as error:
+        logger.warning(
+            {"event": "agent_job_not_executed", **fields, "reason": type(error).__name__}
+        )
+        raise Ignore() from None
     except Exception as error:
         logger.error({"event": "agent_job_failed", **fields, "error_type": type(error).__name__})
         raise

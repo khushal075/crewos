@@ -18,13 +18,21 @@ class CrewTaskFailurePrivacyFilter(logging.Filter):
         error_type = (
             record.exc_info[0].__name__ if record.exc_info and record.exc_info[0] else "TaskError"
         )
+        disposition = (
+            data.get("description")
+            if data.get("description") in {"ignored", "rejected"}
+            else "failed"
+        )
         safe = {
+            "disposition": disposition,
             "name": data["name"],
             "id": data.get("id"),
             "error_type": error_type,
-            "event": "celery_task_failed",
+            "event": (
+                "celery_task_failed" if disposition == "failed" else "celery_task_not_executed"
+            ),
         }
-        record.msg = "Task %(name)s[%(id)s] failed (%(error_type)s)"
+        record.msg = "Task %(name)s[%(id)s] %(disposition)s (%(error_type)s)"
         record.args = safe
         record.data = safe
         record.exc_info = None
