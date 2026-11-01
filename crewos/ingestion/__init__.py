@@ -9,6 +9,7 @@ from crewos.ingestion.contracts import (
     DocumentInput,
     DocumentIngestionRequest,
     DocumentUpdateRequest,
+    DocumentReadRequest, DocumentDeleteRequest, DocumentDeleted,
     StoredDocumentVersion,
     TextChunk,
 )
@@ -23,6 +24,7 @@ from crewos.ingestion.service import DocumentPreparationService
 from crewos.ingestion.document_ingestion_facade import DocumentIngestionFacade
 
 __all__ = [
+    "DocumentReadRequest", "DocumentDeleteRequest", "DocumentDeleted",
     "DocumentInput",
     "DocumentIngestionRequest",
     "DocumentUpdateRequest",

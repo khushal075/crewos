@@ -47,6 +47,26 @@ class DocumentUpdateRequest(DocumentIngestionRequest):
     expected_version: int = Field(strict=True, ge=1)
 
 
+class DocumentReadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    document_id: UUID4
+    version: int | None = Field(default=None, strict=True, ge=1, le=2**63 - 1)
+
+
+class DocumentDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    document_id: UUID4
+
+
+class DocumentDeleted(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    document_id: UUID4
+    deleted: bool = True
+
+
 class DocumentInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 

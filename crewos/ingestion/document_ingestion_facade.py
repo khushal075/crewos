@@ -10,6 +10,9 @@ from crewos.application.services.policy_executor import PolicyEnforcedExecutor
 from crewos.ingestion.contracts import (
     DocumentIngestionRequest,
     DocumentUpdateRequest,
+    DocumentReadRequest,
+    DocumentDeleteRequest,
+    DocumentDeleted,
     StoredDocumentVersion,
 )
 from crewos.ingestion.document_processing_coordinator import DocumentProcessingCoordinator
@@ -63,13 +66,43 @@ class DocumentIngestionFacade:
             ),
         )
 
+    def read(
+        self, *, request: DocumentReadRequest, context: ToolExecutionContext
+    ) -> StoredDocumentVersion:
+        return self._executor.execute(
+            context=context,
+            action="document.read",
+            operation=lambda: self._record_lifecycle(
+                tenant_id=context.tenant_id,
+                event_prefix="document_read",
+                operation=lambda: self._coordinator.read(
+                    request=request, tenant_id=context.tenant_id
+                ),
+            ),
+        )
+
+    def delete(
+        self, *, request: DocumentDeleteRequest, context: ToolExecutionContext
+    ) -> DocumentDeleted:
+        return self._executor.execute(
+            context=context,
+            action="document.delete",
+            operation=lambda: self._record_lifecycle(
+                tenant_id=context.tenant_id,
+                event_prefix="document_delete",
+                operation=lambda: self._coordinator.delete(
+                    request=request, tenant_id=context.tenant_id
+                ),
+            ),
+        )
+
     def _record_lifecycle(
         self,
         *,
         tenant_id: str,
         event_prefix: str,
-        operation: Callable[[], StoredDocumentVersion],
-    ) -> StoredDocumentVersion:
+        operation: Callable[[], StoredDocumentVersion | DocumentDeleted],
+    ) -> StoredDocumentVersion | DocumentDeleted:
         fields = {"tenant_id": tenant_id, "operation_id": str(uuid4())}
         started = monotonic()
         self._logger.info({"event": f"{event_prefix}_started", **fields})
@@ -90,8 +123,10 @@ class DocumentIngestionFacade:
                 "event": f"{event_prefix}_succeeded",
                 **fields,
                 "document_id": str(saved.document_id),
-                "version": saved.version,
-                "chunk_count": len(saved.chunking.chunks),
+                "version": saved.version if isinstance(saved, StoredDocumentVersion) else None,
+                "chunk_count": (
+                    len(saved.chunking.chunks) if isinstance(saved, StoredDocumentVersion) else None
+                ),
                 "duration_ms": round((monotonic() - started) * 1000, 3),
             }
         )

@@ -6,6 +6,9 @@ from crewos.chunking import ChunkingOptions, ChunkingRequest, ChunkingService
 from crewos.ingestion.contracts import (
     DocumentIngestionRequest,
     DocumentUpdateRequest,
+    DocumentReadRequest,
+    DocumentDeleteRequest,
+    DocumentDeleted,
     StoredDocumentVersion,
 )
 from crewos.ingestion.document_store import DocumentStoreInterface, DocumentVersionConflict
@@ -49,6 +52,17 @@ class DocumentProcessingCoordinator:
             document_id=request.document_id,
             version=request.expected_version + 1,
         )
+
+    def read(self, *, request: DocumentReadRequest, tenant_id: str) -> StoredDocumentVersion:
+        request = DocumentReadRequest.model_validate(request.model_dump())
+        return self._store.get(
+            tenant_id=tenant_id, document_id=request.document_id, version=request.version
+        )
+
+    def delete(self, *, request: DocumentDeleteRequest, tenant_id: str) -> DocumentDeleted:
+        request = DocumentDeleteRequest.model_validate(request.model_dump())
+        self._store.delete(tenant_id=tenant_id, document_id=request.document_id)
+        return DocumentDeleted(document_id=request.document_id)
 
     def _prepare_and_store(
         self,
