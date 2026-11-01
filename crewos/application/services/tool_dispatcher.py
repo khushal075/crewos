@@ -15,6 +15,9 @@ class ToolDispatcher:
         """Describe the same registrations used by dispatch; grant no access."""
         return self._registry.tool_schemas()
 
+    def replay_safe(self, name: str) -> bool:
+        return self._registry.get(name).replay_safe
+
     def dispatch(
         self,
         *,

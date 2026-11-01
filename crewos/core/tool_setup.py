@@ -27,6 +27,7 @@ def build_tool_dispatcher(*, reader: TaskStatusReaderInterface) -> ToolDispatche
             description="Read the observed status of a task owned by the current tenant.",
             argument_schema=GetAgentTaskStatusInput,
             handler=handler.execute,
+            replay_safe=True,
         )
     )
     return ToolDispatcher(registry)

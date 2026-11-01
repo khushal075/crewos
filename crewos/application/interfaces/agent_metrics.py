@@ -3,7 +3,7 @@
 from typing import Literal, Protocol
 
 Operation = Literal["run", "model", "tool"]
-Outcome = Literal["success", "error", "decision_limit", "deadline"]
+Outcome = Literal["success", "error", "decision_limit", "deadline", "cancelled", "budget"]
 
 
 class AgentMetricsInterface(Protocol):

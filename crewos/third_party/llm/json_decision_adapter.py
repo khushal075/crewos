@@ -11,20 +11,25 @@ from pydantic import TypeAdapter, ValidationError
 from crewos.application.dtos.decision_request import DecisionMessage, ToolSchema
 from crewos.application.dtos.model_decision import ModelDecision
 from crewos.application.interfaces.decision_provider import DecisionProviderInterface
+from crewos.application.services.execution_control import get_execution_control
 
 
-class DecisionResponseError(RuntimeError):
-    """The model response cannot be used as a supported decision."""
-
-
-class DecisionRefusedError(DecisionResponseError):
-    """The provider explicitly reported refusal metadata."""
+from crewos.application.services.decision_errors import DecisionResponseError, DecisionRefusedError
 
 
 class JsonDecisionAdapter(DecisionProviderInterface):
-    def __init__(self, model: BaseChatModel, *, max_call_timeout_seconds: float = 30.0):
+    def __init__(
+        self,
+        model: BaseChatModel,
+        *,
+        max_call_timeout_seconds: float = 30.0,
+        max_output_tokens: int = 512,
+    ):
         self._validate_timeout(max_call_timeout_seconds)
         self._max_call_timeout_seconds = max_call_timeout_seconds
+        if type(max_output_tokens) is not int or max_output_tokens < 1:
+            raise ValueError("max_output_tokens must be a positive integer")
+        self._max_output_tokens = max_output_tokens
         self._model = model
         self._adapter = TypeAdapter(ModelDecision)
 
@@ -62,13 +67,32 @@ class JsonDecisionAdapter(DecisionProviderInterface):
             )
         )
         history = json.dumps({"messages": [message.model_dump() for message in messages]})
+        control = get_execution_control()
+        if control is not None:
+            # Conservative local admission estimate, not a provider billing tokenizer.
+            estimate = len((instructions + history).encode("utf-8")) + 64
+            control.reserve(estimate, self._max_output_tokens)
         response = self._model.invoke(
             [
                 SystemMessage(content=instructions),
                 HumanMessage(content=history),
             ],
             timeout=effective_timeout,
+            max_tokens=self._max_output_tokens,
         )
+        if control is not None:
+            usage = response.response_metadata.get("token_usage", {})
+            if (
+                isinstance(usage, dict)
+                and "prompt_tokens" in usage
+                and "completion_tokens" in usage
+            ):
+                control.reconcile(
+                    usage["prompt_tokens"],
+                    usage["completion_tokens"],
+                    estimate,
+                    self._max_output_tokens,
+                )
         if response.additional_kwargs.get("refusal"):
             raise DecisionRefusedError("Model declined to provide a decision")
         if getattr(response, "tool_calls", None) or getattr(response, "invalid_tool_calls", None):

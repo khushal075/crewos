@@ -16,6 +16,7 @@ class ToolDefinition:
     description: str
     argument_schema: type[BaseModel]
     handler: Callable[..., BaseModel]
+    replay_safe: bool = False
 
 
 class UnknownToolError(LookupError):
