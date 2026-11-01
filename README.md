@@ -1244,6 +1244,16 @@ The installed LangChain OpenAI-compatible client forwards the per-call `timeout`
 
 Tests cover shrinking allowances between decisions, configured call caps, invalid values, and the installed client-to-HTTP transport path without contacting a live provider. Reference: [official OpenAI Python SDK timeout documentation](https://developers.openai.com/api/reference/python).
 
+## Explicit Redis socket timeouts for status lookups
+
+`REDIS_OPERATION_TIMEOUT` is a positive number of seconds, default 2, with a configuration maximum of 30. The ownership Redis client and Celery Redis result backend now use it for connection and socket read timeouts. The ownership client explicitly disables timeout retries; Celery config explicitly disables `redis_retry_on_timeout` and the generic `result_backend_always_retry` option. Restart API/worker processes to load changes. Private Redis URL query options can override Celery client parameters; keep those settings consistent with the intended timeout policy.
+
+This fixes the result-backend leg that previously had no explicit socket timeout in application configuration. A Redis timeout remains an execution/storage error, never a fabricated `pending`, `unknown`, or `unavailable` lookup. Existing HTTP adapters map Redis errors to service-unavailable responses. Ownership is still checked before backend access.
+
+These are per-socket limits, not a shared remaining tool deadline. A lookup can involve multiple network operations; connection and response waits do not form a single total-duration guarantee. Remaining run budget is not yet passed into each Redis operation. Broker connectivity, Redis result-write retry behavior, network/DNS behavior, and Celery's outer task limits are separate concerns. Disabling the options above does not claim that all Redis/Celery operations have no retries.
+
+Tests inspect the actual Celery Redis client's connection-pool options without making network calls, verify ownership-client configuration, reject invalid settings, and exercise timeout propagation at ownership/backend boundaries. Live Redis outage testing and per-tool remaining-budget propagation remain pending.
+
 ## Implemented versus planned
 
 | Area | Current state |

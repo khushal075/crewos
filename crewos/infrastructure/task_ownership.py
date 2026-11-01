@@ -35,7 +35,8 @@ def get_task_store():
         Redis.from_url(
             settings.REDIS_RESULT_BACKEND,
             decode_responses=True,
-            socket_connect_timeout=2,
-            socket_timeout=2,
+            socket_connect_timeout=settings.REDIS_OPERATION_TIMEOUT,
+            socket_timeout=settings.REDIS_OPERATION_TIMEOUT,
+            retry_on_timeout=False,
         )
     )

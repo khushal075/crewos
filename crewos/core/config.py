@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "crewai_platform"
     REDIS_BROKER_URL: str = ""
     REDIS_RESULT_BACKEND: str = ""
+    REDIS_OPERATION_TIMEOUT: float = Field(default=2.0, gt=0, le=30)
 
     CELERY_QUEUE_NAME: str = "crewai"
     CELERY_CONCURRENCY: int = 10
