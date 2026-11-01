@@ -1103,7 +1103,7 @@ Tests verify same-shape unavailable logs, ownership-before-backend ordering, map
 | `crewos_agent_operations_total` | Number of completed/failed operations |
 | `crewos_agent_operation_duration_seconds` | Duration histogram with count/sum/buckets |
 
-Both use only `operation` (`run`, `model`, `tool`) and `outcome` (`success`, `error`, or run-only `decision_limit`). No tenant ID, run ID, task ID, arbitrary exception name, raw model/tool text, or credentials are labels. Histogram buckets range from 0.01 to 300 seconds plus infinity; counts/sums are observations, while percentiles require aggregation/querying of bucket series. The adapter rejects unsupported label values and non-finite/negative durations before recording.
+Both use only `operation` (`run`, `model`, `tool`) and `outcome` (`success`, `error`, or run-only `decision_limit`/`deadline`). No tenant ID, run ID, task ID, arbitrary exception name, raw model/tool text, or credentials are labels. Histogram buckets range from 0.01 to 300 seconds plus infinity; counts/sums are observations, while percentiles require aggregation/querying of bucket series. The adapter rejects unsupported label values and non-finite/negative durations before recording.
 
 A model success means a structurally valid decision, a tool success means protected dispatch returned (possibly `unavailable`), and a run success means a final-answer proposal returned. None establishes answer correctness or business task success. Failed model/tool calls contribute error measurements and the overall failed run is counted separately. Exhaustion counts a `run/decision_limit` outcome, not an additional failed tool call. Timing uses the monotonic clock and includes local validation/dispatch work, not provider-internal timing.
 
@@ -1224,6 +1224,16 @@ The filter changes logging records only: task exceptions still propagate, failur
 
 Regression tests run Celery's actual failure tracer for both task types with a controlled in-memory backend. They verify safe failure logs, preserved error classification/identity, unchanged backend failures, expected-error handling, unrelated-record behavior, and repeated installation without duplicate filters. No live fault was injected into the user's worker for this verification.
 
+## Cooperative agent run deadline
+
+`AgentLoop` and `build_agent_loop` accept `max_duration_seconds`, defaulting to 120 seconds, validated as a finite positive number. The monotonic timer starts when `run()` begins. The loop checks it before model calls, after validated model decisions, before protected tool dispatch, after tool results, and before reporting decision-limit exhaustion. Queue waiting, authentication, model-client construction, and result storage are outside this loop budget.
+
+An exhausted budget raises `AgentDeadlineExceeded`, emits terminal `agent_run_failed` with reason/phase `deadline`, and records a run metric with outcome `deadline`. Model/tool calls that returned successfully before the checkpoint retain their operation-success measurements even if their result arrived too late for the run to continue. A late final answer is not returned as run success. The decision limit remains an independent budget. Invalid deadline settings fail construction before model invocation.
+
+This is cooperative stopping at execution boundaries, not a hard wall-clock cap: a synchronous in-flight request may continue beyond the deadline until its own timeout or return. It does not cancel remote work, undo tool effects, reserve enough time for a complete next call, or propagate remaining budget into provider/tool network timeouts. Celery's existing soft/hard limits provide a separate outer process guard. The CLI and queued runner currently use the setup default; no client-controlled deadline field or CLI flag is added by this step. Distributed deadline propagation and cancellation are subsequent work.
+
+Tests use a controlled monotonic clock to verify expiry before inference, late model decisions/final answers, late tool observations, deadline logging/metrics, normal completion, and invalid configuration. No sleeping or live model calls are used for these checks.
+
 ## Implemented versus planned
 
 | Area | Current state |
@@ -1252,7 +1262,7 @@ Regression tests run Celery's actual failure tracer for both task types with a c
 | Local CLI demo | Authenticated entry point implemented and tested with controlled dependencies; live-run evidence pending |
 | Queued agent execution | Payload, runner, Celery adapter, and authenticated submission implemented; real broker/live queued validation pending |
 | Dynamic model-chosen tool calls | One successful local tool-choice path observed; broader evaluation pending |
-| Bounded observation/action agent loop | Sequential loop implemented and tested with scripted decisions; real-provider and entrypoint integration pending |
+| Bounded observation/action agent loop | Live CLI/queued paths verified; decision count and cooperative elapsed-time budget implemented |
 | Durable run state, checkpoints, and resume | Planned |
 | Scoped persistent memory | Planned; memory file is a placeholder |
 | MCP discovery and tool integration | Planned |
