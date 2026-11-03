@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from crewos.ingestion.contracts import StoredDocumentVersion
 from crewos.ingestion.adapters.sqlite_document_jobs import SQLiteDocumentJobs
+from crewos.ingestion.document_corpus_reader import DocumentCorpusLimitExceeded
 from crewos.ingestion.document_store import (
     DocumentNotFound,
     DocumentStorageCorruption,
@@ -185,3 +186,34 @@ class SQLiteDocumentStore(SQLiteDocumentJobs):
                 token=NULL,lease_until=NULL WHERE tenant=? AND document_id=?""",
                 identity,
             )
+
+    def read_latest_documents(
+        self, *, tenant_id: str, max_documents: int, max_snapshot_bytes: int
+    ) -> tuple[StoredDocumentVersion, ...]:
+        if any(
+            type(value) is not int or value < 1 for value in (max_documents, max_snapshot_bytes)
+        ):
+            raise ValueError("Corpus limits must be positive integers")
+        if (
+            not isinstance(tenant_id, str)
+            or re.fullmatch(r"[A-Za-z0-9_-]{1,64}", tenant_id) is None
+        ):
+            raise ValueError("Invalid tenant identity")
+        selection = """FROM document_versions AS current
+            WHERE current.tenant_id=? AND NOT EXISTS (
+                SELECT 1 FROM document_versions AS newer
+                WHERE newer.tenant_id=current.tenant_id AND newer.document_id=current.document_id
+                AND newer.version>current.version)"""
+        with self._connection() as db:
+            db.execute("BEGIN")
+            count, size = db.execute(
+                "SELECT COUNT(*),COALESCE(SUM(length(CAST(current.snapshot AS BLOB))),0) "
+                + selection,
+                (tenant_id,),
+            ).fetchone()
+            if count > max_documents or size > max_snapshot_bytes:
+                raise DocumentCorpusLimitExceeded("Tenant corpus exceeds scan limits")
+            rows = db.execute(
+                "SELECT current.* " + selection + " ORDER BY current.document_id", (tenant_id,)
+            )
+            return tuple(self._decode(row) for row in rows)

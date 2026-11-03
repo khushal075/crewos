@@ -93,6 +93,7 @@ def test_other_modules_use_the_public_ingestion_boundary():
                     "contracts",
                     "document_parser",
                     "document_store",
+                    "document_corpus_reader",
                     "document_jobs",
                     "document_job_processor",
                     "document_submission_facade",
@@ -115,7 +116,13 @@ def test_ingestion_core_does_not_import_adapters_or_other_platform_modules():
         "crewos.chunking",
     }
     violations = []
-    for filename in ("contracts.py", "document_parser.py", "document_store.py", "service.py"):
+    for filename in (
+        "contracts.py",
+        "document_parser.py",
+        "document_store.py",
+        "document_corpus_reader.py",
+        "service.py",
+    ):
         for module, level, names in imports(root / filename):
             if level or (module.startswith("crewos") and module not in allowed):
                 violations.append(f"{filename}: unexpected dependency {module}")

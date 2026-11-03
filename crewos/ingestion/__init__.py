@@ -26,6 +26,8 @@ from crewos.ingestion.service import DocumentPreparationService
 from crewos.ingestion.document_ingestion_facade import DocumentIngestionFacade
 
 __all__ = [
+    "DocumentCorpusReaderInterface",
+    "DocumentCorpusLimitExceeded",
     "DocumentReadRequest",
     "DocumentDeleteRequest",
     "DocumentDeleted",
@@ -65,3 +67,8 @@ from crewos.ingestion.document_jobs import (
 )
 from crewos.ingestion.document_submission_facade import DocumentSubmissionFacade
 from crewos.ingestion.document_job_processor import process_document_job
+
+from crewos.ingestion.document_corpus_reader import (
+    DocumentCorpusReaderInterface,
+    DocumentCorpusLimitExceeded,
+)

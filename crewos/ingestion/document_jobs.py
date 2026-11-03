@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, UUID4, Field
 
 from crewos.chunking import ChunkingOptions
 from crewos.ingestion.document_store import DocumentStoreInterface
+from crewos.ingestion.document_corpus_reader import DocumentCorpusReaderInterface
 from crewos.ingestion.contracts import (
     DocumentIngestionRequest,
     DocumentUpdateRequest,
@@ -73,5 +74,7 @@ class DocumentJobStoreInterface(Protocol):
     def mark_job_published(self, job_id: str, tenant_id: str) -> None: ...
 
 
-class DocumentManagementStoreInterface(DocumentStoreInterface, DocumentJobStoreInterface, Protocol):
+class DocumentManagementStoreInterface(
+    DocumentStoreInterface, DocumentJobStoreInterface, DocumentCorpusReaderInterface, Protocol
+):
     """Combined persistence boundary; snapshots and job outcomes share a transaction."""
