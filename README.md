@@ -1949,3 +1949,77 @@ was found) and MRR@1 (whether the first result was relevant). Current mean recal
 query needs two passages despite a one-result cutoff. These are teaching results,
 not a production quality claim. See [evaluation details](docs/architecture/retrieval.md#reproducible-offline-relevance-evaluation)
 for assumptions, reproducibility, and limitations.
+
+### Optional BM25 keyword strategy
+
+`build_bm25_retrieval(reader=..., executor=...)` provides an alternative to
+`build_keyword_retrieval` through the same authorized facade and result contract.
+It ranks current tenant passages using word rarity, frequency saturation, and
+length normalization. This is a bounded in-memory implementation with no search
+index or model dependency. It still requires matching words and cannot resolve
+paraphrases by itself. See the [BM25 architecture details](docs/architecture/retrieval.md#concrete-bm25-strategy)
+for configuration, formula, resource limits, and ranking semantics.
+
+Compare both keyword strategies on identical synthetic data:
+
+```bash
+poetry run python -m crewos.retrieval.evaluate_demo --compare
+poetry run python -m crewos.retrieval.evaluate_demo --compare --top-k 2
+```
+
+The JSON report includes expected document numbers and actual retrieved IDs for
+inspection (document numbers map to the deterministic UUIDs in the fixture).
+At k=1, both strategies currently obtain mean recall 0.642857 and MRR 0.714286.
+This fixture does not establish a BM25 improvement: both miss the paraphrases.
+Raising k to 2 finds both sources for the two-source query, illustrating the effect
+of the result cutoff separately from the algorithm choice.
+
+### Agent document-search tool
+
+Both the local agent demo and background agent runner now advertise
+`search_documents` alongside `get_agent_task_status`. The model proposes arguments:
+
+```json
+{"type":"tool_call","name":"search_documents","arguments":{"query":"webhook timeout","top_k":3}}
+```
+
+The dispatcher validates `RetrievalRequest`. `SearchDocumentsHandler` calls the
+retrieval facade, which requires **both** server-assigned `document.search` and
+`document.read` permissions. Neither tenant identity nor grants are accepted as
+model arguments. Configure these grants through the existing `TENANT_PERMISSIONS`
+setting; this change grants no permissions automatically. The tool inventory is
+not filtered by permissions, so seeing a tool does not authorize its execution.
+
+Default composition uses BM25 and the existing `DOCUMENT_DB_PATH`, so it searches
+plain-text documents already ingested into that database. It reads only the
+current tenant's latest available versions. Construction does not open the
+SQLite database: storage access happens after the facade policy checks.
+
+For example, with documents ingested, the services needed by your chosen agent
+entry point running, and tenant credentials/grants configured:
+
+```bash
+poetry run python -m crewos.core.agent_demo \
+  --tenant-id tenant_a \
+  --message "Use search_documents to find webhook timeout recovery guidance." \
+  --max-decisions 5
+```
+
+The tool returns ordered passages with document ID, version, source reference and
+chunk positions. Empty passages mean no word matches; policy/storage/capacity
+errors propagate. The agent-facing composition admits at most 20 current tenant
+documents and 8 MB of snapshots, 8,000 selected text characters, and a 32,000-byte
+serialized result. Oversized results fail rather than being silently truncated;
+reduce top_k or improve chunking. These limits do not guarantee model context fit.
+
+Passage text is untrusted data in a tool observation, not a system instruction.
+The existing adapter instruction reinforces that boundary but is not a complete
+prompt-injection defense. Tool observations enter conversation checkpoints for
+durable runs, so document content is also subject to run-storage retention and
+access controls; metadata-only operational logging does not remove that content
+from checkpoints. Read-only search is replay-safe in the side-effect sense, but
+re-execution may observe changed documents and different rankings.
+
+This step exposes evidence to the agent. It does not validate generated answers,
+require citations, or establish that a model followed the evidence. End-to-end
+tests use scripted model responses and verify plumbing, not model reasoning.
