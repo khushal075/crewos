@@ -74,3 +74,39 @@ def test_real_baseline_report_exposes_paraphrase_misses_and_cutoff_loss():
     assert rows["two_recovery_sources"]["recall_at_k"] == 0.5
     assert report["mean_recall_at_k"] == pytest.approx(4.5 / 7)
     assert report["mrr_at_k"] == pytest.approx(5 / 7)
+
+
+def test_comparison_keeps_dataset_and_labels_fixed_and_reports_real_misses():
+    from crewos.retrieval.evaluate_demo import run_comparison
+
+    overlap, bm25 = run_comparison(k=2)["reports"]
+    assert overlap["strategy"] == "keyword_overlap_v1"
+    assert bm25["strategy"] == "bm25_v1"
+    for key in ("dataset", "k", "chunk_size", "overlap"):
+        assert overlap[key] == bm25[key]
+    assert overlap["k"] == 2
+    for first, second in zip(overlap["queries"], bm25["queries"], strict=True):
+        for key in ("case_id", "query", "expected_document_numbers"):
+            assert first[key] == second[key]
+        if first["case_id"].startswith("paraphrased"):
+            assert second["recall_at_k"] == 0
+        if first["case_id"] == "two_recovery_sources":
+            assert first["recall_at_k"] == second["recall_at_k"] == 1
+
+
+def test_evaluation_rejects_unknown_strategy_and_invalid_cutoff():
+    with pytest.raises(ValueError, match="Unknown"):
+        run_demo(strategy="unavailable")
+    with pytest.raises(ValueError):
+        run_demo(k=0)
+
+
+def test_comparison_cli_emits_parseable_report(monkeypatch, capsys):
+    import json
+    from crewos.retrieval.evaluate_demo import main
+
+    monkeypatch.setattr("sys.argv", ["evaluate_demo", "--compare", "--top-k", "2"])
+    main()
+    reports = json.loads(capsys.readouterr().out)["reports"]
+    assert len(reports) == 2
+    assert all(report["k"] == 2 for report in reports)
