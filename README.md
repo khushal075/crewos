@@ -1,6 +1,6 @@
 # CrewOS
 
-A Python foundation for an AI agent platform, with a fixed two-step workflow, a bounded tool-using agent loop, and tenant-scoped document management. Single-host durable agent records and document versions are implemented. Retrieval, approvals, and multi-agent evaluation remain planned.
+A Python foundation for an AI agent platform, with a fixed two-step workflow, a bounded tool-using agent loop, and tenant-scoped document management. Single-host durable agent records and document versions are implemented. A bounded keyword-retrieval baseline is available; hybrid retrieval, RAG, approvals, and multi-agent evaluation remain planned.
 
 ## Contents
 
@@ -1303,7 +1303,7 @@ These controls are verified with controlled tests and temporary databases. Earli
 | Document lifecycle, idempotent API submissions, and background ingestion | Implemented for plain-text documents with single-host SQLite; controlled Celery delivery tested |
 | Scoped persistent memory | Planned; memory file is a placeholder |
 | MCP discovery and tool integration | Planned |
-| Evidence retrieval, hybrid search, and RAG evaluation | Planned |
+| Evidence retrieval, hybrid search, and RAG evaluation | Keyword-overlap baseline implemented for bounded corpora; hybrid search and RAG evaluation planned |
 | Human approvals and protected external actions | Planned |
 | Provider capability routing, fallback, and circuit breakers | Planned |
 | Multi-agent handoffs and comparative evaluation | Planned |
@@ -1808,6 +1808,120 @@ See [Chunking architecture](docs/architecture/chunking.md) for module boundaries
 request flow, and the extraction path. Run checks with
 `poetry run pytest tests/test_chunking.py tests/test_text_chunk.py tests/test_ingestion_module.py -q`.
 
+## Retrieval contract foundation
+
+`crewos.retrieval` exposes data contracts in `search_contracts.py`, an authorized
+facade, a strategy interface, and a bounded keyword-overlap implementation.
+There is no search index, retrieval endpoint/tool, embeddings, or RAG generation yet.
+
+- `RetrievalRequest`: a nonblank query (up to 2,048 characters) and `top_k`, the
+  maximum number of requested passages (default 5, range 1–20). Tenant identity
+  and permissions are forbidden request fields; a future authorized service
+  obtains scope from trusted context at the facade.
+- `RetrievedPassage`: document ID, exact document version, title, optional source
+  label, and an existing `TextChunk` with exact source text/index/offsets.
+  Tenant scope plus document/version/chunk index identifies a passage.
+- `RetrievalResult`: a strategy label and up to 20 distinct source passages in
+  strategy-defined order. Empty results are valid; execution failures must not
+  be silently represented as empty results. The facade enforces requested
+  `top_k`; the current storage reader enforces tenant/latest-version scope.
+
+Lookup fetches a known ID; retrieval finds passages from a query such as
+"How do I recover failed CRM webhooks?" The contracts describe returned evidence,
+not generated answers. Source references do not prove correctness; structural
+validation cannot prove relevance, source fidelity against storage, tenant
+isolation, or ordering quality. Scores are deferred until a real strategy defines
+their meaning, rather than presenting an arbitrary number as confidence.
+
+`keyword_v1` in contract tests is an illustrative label, not an implemented
+search strategy. Run `poetry run pytest tests/test_retrieval_contracts.py -q`.
+
+## Authorized retrieval boundary
+
+`PassageRetrieverInterface` in `crewos/retrieval/passage_retriever.py` defines
+`search(request=..., tenant_id=...) -> RetrievalResult`. Implementations must
+scope sources to the supplied tenant before ranking/limiting, search current
+available versions, and return exact source identity/text. This Protocol does
+not implement those database guarantees or provide a concrete keyword engine.
+
+`RetrievalFacade` in `crewos/retrieval/retrieval_facade.py` receives a search
+strategy and the shared policy executor through constructor injection. Its
+`search(request=..., context=...)` requires both `document.search` and
+`document.read` before touching the backend, because results contain source
+content. Context must be established by authenticated application code; no
+permissions are enabled automatically. The facade passes only the context's
+tenant to the strategy, deeply revalidates request/results, and rejects more
+passages than requested. It does not silently truncate or hide backend failures.
+
+Lifecycle events contain tenant, strategy, counts, duration, and error class;
+query, passage text, titles, and raw exception details are excluded. Tests use
+controlled strategies and verify permission gates, scoped invocation, failure
+propagation, and limits. Additional real SQLite tests now verify tenant filtering,
+latest-version selection, deletion visibility, and transactional read consistency.
+These checks do not establish broad retrieval quality.
+
+Run `poetry run pytest tests/test_retrieval_contracts.py tests/test_retrieval_facade.py -q`.
+
+## Keyword retrieval baseline
+
+`build_keyword_retrieval(reader=..., executor=...)` constructs the first concrete
+strategy behind the authorized facade. Ingestion exposes
+`DocumentCorpusReaderInterface` through its public package; retrieval does not
+import ingestion's SQLite adapter or tables. `SQLiteDocumentStore` implements
+this bounded read boundary without requiring a new schema or search index.
+
+```python
+from crewos.application.services.permission_policy import PermissionPolicyService
+from crewos.application.services.policy_executor import PolicyEnforcedExecutor
+from crewos.ingestion import build_sqlite_document_store
+from crewos.retrieval import RetrievalRequest, build_keyword_retrieval
+
+search = build_keyword_retrieval(
+    reader=build_sqlite_document_store("var/documents.sqlite3"),
+    executor=PolicyEnforcedExecutor(PermissionPolicyService()),
+)
+# Application code supplies an authenticated context with both
+# document.search and document.read; request bodies cannot assign these grants.
+# result = search.search(
+#     request=RetrievalRequest(query="webhook timeout", top_k=5), context=context
+# )
+```
+
+`keyword_overlap_v1` case-folds text and extracts Unicode word sequences
+(`\w+`: letters/digits/underscores). It ranks chunk text by the number of distinct
+query terms present. A repeated query/passage term does not increase that score.
+For query `webhook timeout`, a chunk containing both words ranks above one with
+only `timeout`, even if `timeout` repeats many times. A match on any query term
+qualifies; title/source-label text does not contribute. Ties use document ID,
+version, then chunk index for deterministic ordering. Results preserve exact
+source text and offsets; the internal overlap count is not a confidence score.
+Punctuation-only queries have no terms and return no matches without scanning.
+
+The reader filters tenant and selects each document's latest version before
+ranking. It checks corpus admission before loading snapshots and uses one read
+transaction for consistent limits/data. Defaults are at most 20 documents and
+8,000,000 serialized snapshot bytes (including chunks/metadata), plus 100,000
+characters across selected result passages. Exceedance raises
+`DocumentCorpusLimitExceeded` or `RetrievalCapacityExceeded`; it never silently
+searches a truncated corpus. These are server-side setup limits, not query fields.
+A wrongly scoped custom reader is rejected if it returns another tenant's record.
+
+New reads see committed version updates and deletions. A read already in flight
+reflects its transaction snapshot; deletion cannot revoke data it has already
+read. Snapshot/model validation protects source consistency, not factual truth.
+Storage/corruption failures propagate rather than appearing as empty results.
+
+This is a bounded in-memory scan after a scoped database read, not BM25, semantic
+retrieval, or a production-scale index. There is no stop-word removal, stemming,
+accent folding, synonym handling, title weighting, or retrieval-quality benchmark.
+For example, `résumé` can match `RÉSUMÉ`, but does not automatically match `resume`.
+As the corpus grows, we will introduce indexed keyword search and evaluate it
+before combining it with vectors. No API endpoint, agent tool, model call, or
+permission grant is added in this step.
+
+Architecture: [Retrieval](docs/architecture/retrieval.md). Run
+`poetry run pytest tests/test_keyword_retrieval.py tests/test_retrieval_facade.py tests/test_retrieval_contracts.py -q`.
+
 ## Contributing and documentation
 
 Use small commits that pair each behavior change with meaningful tests. Preserve useful explanations when changing documentation: correct outdated statements, add newly implemented behavior, and explicitly label planned features rather than deleting architectural context.
@@ -1821,3 +1935,17 @@ API -> authenticated tenant scope -> ownership registration -> tenant queue -> C
 Redis ownership remains a bounded compatibility foundation; the agent runtime now has a separate SQLite single-host durable run/checkpoint store. A shared multi-host database adapter remains future deployment work. Domain code uses application-provided models; generation and embedding contracts will be strengthened during the agent-runtime phase. Memory and advanced retry/orchestration features must not be inferred from placeholder filenames.
 
 Next: a bounded agent loop with typed tool decisions, validated tool execution, completion criteria, and an observable step budget.
+
+### Measure the keyword retrieval baseline
+
+```bash
+poetry run python -m crewos.retrieval.evaluate_demo
+```
+
+This local evaluation uses four synthetic integration runbooks and seven labeled
+queries in disposable SQLite storage. It reports Recall@1 (how much labeled evidence
+was found) and MRR@1 (whether the first result was relevant). Current mean recall is
+0.642857 and MRR is 0.714286: literal queries succeed, two paraphrases miss, and one
+query needs two passages despite a one-result cutoff. These are teaching results,
+not a production quality claim. See [evaluation details](docs/architecture/retrieval.md#reproducible-offline-relevance-evaluation)
+for assumptions, reproducibility, and limitations.
