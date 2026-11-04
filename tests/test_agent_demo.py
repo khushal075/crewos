@@ -162,3 +162,53 @@ def test_snapshot_write_failure_preserves_agent_exit_code(
     assert "Metrics snapshot failed (FileNotFoundError)." in captured.err
     assert "private failure" not in captured.err
     assert not path.exists()
+
+
+@pytest.mark.parametrize("answered", [True, False])
+def test_document_mode_cli_renders_outcome_and_sources(
+    demo, monkeypatch, tmp_path, capsys, answered
+):
+    import json
+    from crewos.ingestion import build_sqlite_document_store
+    from tests.test_agent_document_search import save
+
+    documents = build_sqlite_document_store(tmp_path / "documents.sqlite3")
+    source = save(documents, "Use backoff for timeout", tenant="tenant_a")
+    monkeypatch.setattr("crewos.core.retrieval_setup.get_document_store", lambda: documents)
+    monkeypatch.setattr(
+        settings,
+        "TENANT_PERMISSIONS",
+        {"tenant_a": frozenset({"document.search", "document.read"})},
+    )
+    _, model, backend = demo
+    result = (
+        {
+            "outcome": "answered",
+            "answer": "Use backoff",
+            "citations": [
+                {
+                    "document_id": str(source.document_id),
+                    "document_version": 1,
+                    "chunk_index": 0,
+                }
+            ],
+        }
+        if answered
+        else {"outcome": "insufficient_evidence", "explanation": "Guidance is incomplete"}
+    )
+    model.invoke.side_effect = [
+        AIMessage(
+            content=json.dumps(
+                {"type": "tool_call", "name": "search_documents", "arguments": {"query": "timeout"}}
+            )
+        ),
+        AIMessage(content=json.dumps({"type": "document_answer", "result": result})),
+    ]
+    assert main(ARGS + ["--answer-mode", "document"]) == 0
+    output = capsys.readouterr().out
+    assert f"Outcome: {result['outcome']}" in output
+    if answered:
+        assert f"Source: {source.document_id} version=1 chunk=0" in output
+    else:
+        assert "Guidance is incomplete" in output
+    backend.assert_not_called()

@@ -9,6 +9,8 @@ from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
 from crewos.application.dtos.decision_request import DecisionMessage
+from crewos.application.dtos.model_decision import DocumentFinalAnswerDecision
+from crewos.application.dtos.document_answer import AnsweredDocumentAnswer
 from crewos.core.agent_setup import build_agent_loop
 from crewos.core.tenant import get_tenant_id, get_tool_execution_context
 from crewos.infrastructure.task_ownership import get_task_store
@@ -34,9 +36,12 @@ def positive_integer(value: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run the CrewOS task-status agent demo")
+    parser = argparse.ArgumentParser(
+        description="Run the CrewOS agent demo in general or document-answer mode"
+    )
     parser.add_argument("--tenant-id", required=True, type=nonblank)
     parser.add_argument("--message", required=True, type=nonblank)
+    parser.add_argument("--answer-mode", choices=("general", "document"), default="general")
     parser.add_argument("--max-decisions", type=positive_integer, default=5)
     parser.add_argument(
         "--metrics-file",
@@ -55,7 +60,12 @@ def main(argv: list[str] | None = None) -> int:
         context = get_tool_execution_context(tenant_id=tenant_id)
         model = OllamaLLMProvider().get()
         reader = CeleryTaskStatusReader(get_task_store())
-        loop = build_agent_loop(model=model, reader=reader, max_decisions=args.max_decisions)
+        loop = build_agent_loop(
+            model=model,
+            reader=reader,
+            max_decisions=args.max_decisions,
+            answer_mode=args.answer_mode,
+        )
         run_attempted = True
         answer = loop.run(
             messages=[DecisionMessage(role="user", content=args.message)],
@@ -74,6 +84,12 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as error:
                 print(f"Metrics snapshot failed ({type(error).__name__}).", file=sys.stderr)
 
+    if isinstance(answer, DocumentFinalAnswerDecision):
+        print(f"Outcome: {answer.result.outcome.value}")
+        if not isinstance(answer.result, AnsweredDocumentAnswer):
+            print(answer.result.explanation)
+            return 0
+        answer = answer.result
     print(answer.answer)
     for source in answer.citations:
         print(
