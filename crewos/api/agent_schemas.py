@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import UUID4, BaseModel, ConfigDict, Field
 
-from crewos.application.dtos.model_decision import NonBlankText
+from crewos.application.dtos.model_decision import NonBlankText, AgentAnswerMode
 
 
 class AgentRunRequest(BaseModel):
@@ -12,6 +12,7 @@ class AgentRunRequest(BaseModel):
 
     message: NonBlankText = Field(max_length=32768)
     max_decisions: int = Field(default=5, strict=True, ge=1)
+    answer_mode: AgentAnswerMode = "general"
 
 
 class AgentRunAccepted(BaseModel):

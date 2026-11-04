@@ -315,3 +315,71 @@ def test_resumed_final_checkpoint_validates_citation_provenance(job_setup, obser
             execute_agent_job(job)
         assert store.get(job["agent_run_id"], "tenant_a")["state"] == "failed"
     provider.assert_not_called()
+
+
+@pytest.mark.parametrize("search_completed", [True, False])
+def test_document_worker_checkpoint_requires_search_on_resume(job_setup, search_completed):
+    from crewos.application.services.document_answer_validation import DocumentAnswerError
+    from crewos.core.agent_job_runner import get_run_store
+
+    old, _, provider, _, _ = job_setup
+    job = {**old, "agent_run_id": str(uuid4()), "max_decisions": 5, "answer_mode": "document"}
+    store = get_run_store()
+    store.create(job, duration_seconds=120)
+    first = store.claim(job)
+    store.checkpoint(
+        first["id"],
+        first["tenant"],
+        first["lease_token"],
+        {
+            "answer_mode": "document",
+            "document_search_completed": search_completed,
+            "final_result": {
+                "type": "document_answer",
+                "result": {"outcome": "insufficient_evidence", "explanation": "No evidence"},
+            },
+        },
+    )
+    store.finish(first["id"], first["tenant"], first["lease_token"], state="failed")
+    store.resume(first["id"], first["tenant"])
+    if search_completed:
+        assert execute_agent_job(job).result.outcome == "insufficient_evidence"
+    else:
+        with pytest.raises(DocumentAnswerError):
+            execute_agent_job(job)
+    provider.assert_not_called()
+
+
+def test_document_worker_search_and_result_survive_cached_delivery(job_setup, monkeypatch):
+    from crewos.core.agent_job_runner import get_run_store
+    from crewos.ingestion import build_sqlite_document_store
+    from tempfile import TemporaryDirectory
+    from pathlib import Path
+
+    old, _, _, model, _ = job_setup
+    job = {**old, "agent_run_id": str(uuid4()), "max_decisions": 5, "answer_mode": "document"}
+    store = get_run_store()
+    store.create(job, duration_seconds=120)
+    monkeypatch.setattr(
+        settings,
+        "TENANT_PERMISSIONS",
+        {"tenant_a": frozenset({"document.search", "document.read"})},
+    )
+    model.invoke.side_effect = [
+        AIMessage(
+            content='{"type":"tool_call","name":"search_documents","arguments":{"query":"timeout"}}'
+        ),
+        AIMessage(
+            content='{"type":"document_answer","result":{"outcome":"insufficient_evidence","explanation":"No matching guidance"}}'
+        ),
+    ]
+    with TemporaryDirectory() as directory:
+        documents = build_sqlite_document_store(Path(directory) / "documents.sqlite3")
+        monkeypatch.setattr("crewos.core.retrieval_setup.get_document_store", lambda: documents)
+        first = execute_agent_job(job)
+        assert first.result.outcome == "insufficient_evidence"
+        assert execute_agent_job(job) == first
+    assert model.invoke.call_count == 2
+    record = store.get(job["agent_run_id"], "tenant_a")
+    assert record["checkpoint"]["answer_mode"] == "document"
+    assert record["checkpoint"]["document_search_completed"] is True

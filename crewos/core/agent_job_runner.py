@@ -8,7 +8,13 @@ from crewos.application.dtos.source_reference import SourceReference
 from crewos.application.services.citation_validation import validate_answer_citations
 from crewos.application.dtos.agent_run_job import AgentRunJob
 from crewos.application.dtos.decision_request import DecisionMessage
-from crewos.application.dtos.model_decision import FinalAnswerDecision
+from pydantic import TypeAdapter
+from crewos.application.dtos.model_decision import (
+    FinalAnswerDecision,
+    DocumentFinalAnswerDecision,
+    AgentAnswer,
+)
+from crewos.application.services.document_answer_validation import validate_document_answer
 from crewos.application.interfaces.run_store import RunCancelled, RunLeaseLost
 from crewos.application.services.execution_control import ExecutionControl, ResourceBudgetExceeded
 from crewos.application.use_cases.agent_loop import AgentDeadlineExceeded, DecisionLimitExceeded
@@ -24,10 +30,13 @@ from crewos.infrastructure.task_status_reader import CeleryTaskStatusReader
 from crewos.third_party.llm.ollama_adapter import OllamaLLMProvider
 
 
-def execute_agent_job(payload: object) -> FinalAnswerDecision:
+def execute_agent_job(payload: object) -> AgentAnswer:
     job = AgentRunJob.model_validate(payload)
     if job.max_decisions > settings.AGENT_MAX_DECISIONS:
         raise ValueError("Decision budget exceeds worker policy")
+    answer_adapter = TypeAdapter(
+        DocumentFinalAnswerDecision if job.answer_mode == "document" else FinalAnswerDecision
+    )
     store = get_run_store()
     record = store.claim(job.model_dump(mode="json"))
     if record["state"] == "succeeded":
@@ -38,7 +47,7 @@ def execute_agent_job(payload: object) -> FinalAnswerDecision:
                 "tenant_id": record["tenant"],
             }
         )
-        return FinalAnswerDecision.model_validate(record["result"])
+        return answer_adapter.validate_python(record["result"])
     token, run_id = record["lease_token"], str(job.agent_run_id)
     logger.info(
         {
@@ -76,14 +85,21 @@ def execute_agent_job(payload: object) -> FinalAnswerDecision:
         control.start_heartbeat()
         control.persist(limits=limits)
         if record["checkpoint"].get("final_result"):
-            answer = FinalAnswerDecision.model_validate(record["checkpoint"]["final_result"])
-            validate_answer_citations(
-                answer,
-                observed=[
-                    SourceReference.model_validate(item)
-                    for item in record["checkpoint"].get("observed_sources", [])
-                ],
-            )
+            answer = answer_adapter.validate_python(record["checkpoint"]["final_result"])
+            observed = [
+                SourceReference.model_validate(item)
+                for item in record["checkpoint"].get("observed_sources", [])
+            ]
+            if isinstance(answer, DocumentFinalAnswerDecision):
+                if record["checkpoint"].get("answer_mode") != "document":
+                    raise ValueError("Document checkpoint requires document mode")
+                validate_document_answer(
+                    answer,
+                    observed=observed,
+                    search_completed=record["checkpoint"].get("document_search_completed", False),
+                )
+            else:
+                validate_answer_citations(answer, observed=observed)
         else:
             remaining = control.guard()
             if remaining <= 0:
@@ -95,6 +111,7 @@ def execute_agent_job(payload: object) -> FinalAnswerDecision:
                     model=model,
                     reader=CeleryTaskStatusReader(get_task_store()),
                     max_decisions=job.max_decisions,
+                    answer_mode=job.answer_mode,
                     max_duration_seconds=remaining,
                 )
                 answer = loop.run(

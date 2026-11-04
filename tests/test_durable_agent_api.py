@@ -158,3 +158,29 @@ def test_oversized_message_is_rejected_before_persistence_and_publication(setup)
     response = client.post("/agents/runs", headers=headers(), json={"message": "x" * 32769})
     assert response.status_code == 422
     publish.assert_not_called()
+
+
+def test_idempotency_key_cannot_switch_answer_mode(setup):
+    client, store, _, publish = setup
+    request_headers = {**headers(), "Idempotency-Key": "fixed-mode"}
+    first = client.post(
+        "/agents/runs",
+        headers=request_headers,
+        json={"message": "Find guidance", "answer_mode": "document"},
+    )
+    assert first.status_code == 202
+    replay = client.post(
+        "/agents/runs",
+        headers=request_headers,
+        json={"message": "Find guidance", "answer_mode": "document"},
+    )
+    assert replay.status_code == 202 and replay.json()["replayed"] is True
+    switched = client.post(
+        "/agents/runs",
+        headers=request_headers,
+        json={"message": "Find guidance", "answer_mode": "general"},
+    )
+    assert switched.status_code == 409
+    record = store.get(first.json()["agent_run_id"], "tenant_a")
+    assert record["job"]["answer_mode"] == "document"
+    assert publish.call_count == 1

@@ -49,6 +49,7 @@ def submit_agent_run(
             tenant_id=context.tenant_id,
             message=payload.message,
             max_decisions=payload.max_decisions,
+            answer_mode=payload.answer_mode,
         )
         record = run_store.create(
             job.model_dump(mode="json"),

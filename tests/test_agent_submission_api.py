@@ -145,3 +145,25 @@ def test_main_application_exposes_agent_submission():
     from crewos.main import app
 
     assert "/agents/runs" in app.openapi()["paths"]
+
+
+def test_document_mode_is_backend_recorded_and_published(setup):
+    client, _, publish = setup
+    response = client.post(
+        "/agents/runs",
+        headers=headers(),
+        json={"message": "Find guidance", "answer_mode": "document"},
+    )
+    assert response.status_code == 202
+    assert publish.call_args.kwargs["args"][0]["answer_mode"] == "document"
+
+
+def test_invalid_answer_mode_is_rejected_before_publication(setup):
+    client, _, publish = setup
+    response = client.post(
+        "/agents/runs",
+        headers=headers(),
+        json={"message": "Find guidance", "answer_mode": "unrestricted"},
+    )
+    assert response.status_code == 422
+    publish.assert_not_called()
