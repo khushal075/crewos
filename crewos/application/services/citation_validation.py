@@ -3,6 +3,7 @@
 from collections.abc import Iterable
 
 from crewos.application.dtos.model_decision import FinalAnswerDecision
+from crewos.application.dtos.document_answer import AnsweredDocumentAnswer
 from crewos.application.dtos.source_reference import SourceReference
 
 
@@ -11,7 +12,7 @@ class UnobservedCitationError(RuntimeError):
 
 
 def validate_answer_citations(
-    answer: FinalAnswerDecision, *, observed: Iterable[SourceReference]
+    answer: FinalAnswerDecision | AnsweredDocumentAnswer, *, observed: Iterable[SourceReference]
 ) -> None:
     available = set(observed)
     if any(reference not in available for reference in answer.citations):

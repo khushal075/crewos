@@ -2,6 +2,7 @@
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
+from crewos.application.dtos.model_decision import AgentAnswerMode
 from crewos.application.interfaces.task_status_reader import TaskStatusReaderInterface
 from crewos.application.use_cases.agent_loop import AgentLoop
 from crewos.core.tool_setup import build_tool_dispatcher
@@ -19,6 +20,7 @@ def build_agent_loop(
     model: BaseChatModel,
     reader: TaskStatusReaderInterface,
     max_decisions: int = 5,
+    answer_mode: AgentAnswerMode = "general",
     max_duration_seconds: float | None = None,
 ) -> AgentLoop:
     """Caller supplies configured dependencies and per-run inputs separately.
@@ -31,11 +33,13 @@ def build_agent_loop(
     return AgentLoop(
         provider=JsonDecisionAdapter(
             model,
+            answer_mode=answer_mode,
             max_call_timeout_seconds=settings.LLM_TIMEOUT,
             max_output_tokens=settings.AGENT_MAX_OUTPUT_TOKENS,
         ),
         dispatcher=build_tool_dispatcher(reader=reader),
         max_decisions=max_decisions,
+        answer_mode=answer_mode,
         max_duration_seconds=(
             settings.AGENT_MAX_DURATION if max_duration_seconds is None else max_duration_seconds
         ),

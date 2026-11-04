@@ -12,9 +12,17 @@ from redis.exceptions import RedisError
 
 from crewos.application.dtos.source_reference import SourceReference
 from crewos.application.services.citation_validation import validate_answer_citations
+from crewos.application.services.document_answer_validation import validate_document_answer
 from crewos.retrieval import RetrievalResult
 from crewos.application.dtos.decision_request import DecisionMessage
-from crewos.application.dtos.model_decision import FinalAnswerDecision, ModelDecision
+from crewos.application.dtos.model_decision import (
+    FinalAnswerDecision,
+    ModelDecision,
+    DocumentFinalAnswerDecision,
+    DocumentModelDecision,
+    AgentAnswer,
+    AgentAnswerMode,
+)
 from crewos.application.dtos.tool_execution_context import ToolExecutionContext
 from crewos.application.interfaces.decision_provider import DecisionProviderInterface
 from crewos.application.interfaces.agent_metrics import AgentMetricsInterface, Operation, Outcome
@@ -44,6 +52,7 @@ class AgentLoop:
         provider: DecisionProviderInterface,
         dispatcher: ToolDispatcher,
         max_decisions: int = 5,
+        answer_mode: AgentAnswerMode = "general",
         max_duration_seconds: float = 120.0,
         logger: logging.Logger | None = None,
         metrics: AgentMetricsInterface | None = None,
@@ -64,7 +73,10 @@ class AgentLoop:
         self._max_decisions = max_decisions
         self._metrics = metrics
         self._control_options = control_options or {"max_recoveries": 0}
-        self._decision_adapter = TypeAdapter(ModelDecision)
+        self._answer_mode = TypeAdapter(AgentAnswerMode).validate_python(answer_mode)
+        self._decision_adapter = TypeAdapter(
+            DocumentModelDecision if answer_mode == "document" else ModelDecision
+        )
         self._logger = logger if logger is not None else logging.getLogger(__name__)
 
     def run(self, *, messages, context, agent_run_id=None, control=None):
@@ -78,7 +90,7 @@ class AgentLoop:
         messages: Sequence[DecisionMessage],
         context: ToolExecutionContext,
         agent_run_id: UUID | str | None = None,
-    ) -> FinalAnswerDecision:
+    ) -> AgentAnswer:
         """Caller establishes message provenance and trusted execution context.
 
         Tool results are observations, never system instructions. This text-level
@@ -97,6 +109,7 @@ class AgentLoop:
             SourceReference.model_validate(item)
             for item in control.state.get("observed_sources", [])
         }
+        document_search_completed = control.state.get("document_search_completed", False)
         phase = "setup"
         phase_started = started
         tool_call_id = None
@@ -151,6 +164,8 @@ class AgentLoop:
                 tools_completed=tools_completed,
                 pending=pending,
                 replay_safe=replay_safe,
+                answer_mode=self._answer_mode,
+                document_search_completed=document_search_completed,
                 observed_sources=[
                     source.model_dump(mode="json")
                     for source in sorted(
@@ -162,10 +177,15 @@ class AgentLoop:
 
         emit(
             "agent_run_started",
+            answer_mode=self._answer_mode,
             max_decisions=self._max_decisions,
             max_duration_seconds=self._max_duration_seconds,
         )
         try:
+            if ("answer_mode" in control.state or "history" in control.state) and control.state.get(
+                "answer_mode", "general"
+            ) != self._answer_mode:
+                raise ValueError("Checkpoint answer mode differs from configured mode")
             history = (
                 [DecisionMessage.model_validate(item) for item in control.state["history"]]
                 if "history" in control.state
@@ -233,9 +253,16 @@ class AgentLoop:
                         decision_type=decision.type,
                     )
                 check_deadline()
-                if isinstance(decision, FinalAnswerDecision):
+                if isinstance(decision, (FinalAnswerDecision, DocumentFinalAnswerDecision)):
                     phase = "citation_validation"
-                    validate_answer_citations(decision, observed=observed_sources)
+                    if isinstance(decision, DocumentFinalAnswerDecision):
+                        validate_document_answer(
+                            decision,
+                            observed=observed_sources,
+                            search_completed=document_search_completed,
+                        )
+                    else:
+                        validate_answer_citations(decision, observed=observed_sources)
                     control.persist(final_result=decision.model_dump(mode="json"))
                     measure("run", "success", started)
                     emit(
@@ -244,6 +271,12 @@ class AgentLoop:
                         tool_calls=tool_calls,
                         tools_completed=tools_completed,
                         reason="final_answer",
+                        answer_mode=self._answer_mode,
+                        document_outcome=(
+                            decision.result.outcome.value
+                            if isinstance(decision, DocumentFinalAnswerDecision)
+                            else None
+                        ),
                         duration_ms=round((perf_counter() - started) * 1000, 3),
                     )
                     return decision
@@ -304,6 +337,7 @@ class AgentLoop:
                     checkpoint(history)
                     continue
                 if decision.name == "search_documents" and isinstance(result, RetrievalResult):
+                    document_search_completed = True
                     observed_sources.update(
                         SourceReference(
                             document_id=hit.document_id,

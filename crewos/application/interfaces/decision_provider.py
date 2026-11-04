@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 
 from crewos.application.dtos.decision_request import DecisionMessage, ToolSchema
-from crewos.application.dtos.model_decision import ModelDecision
+from crewos.application.dtos.model_decision import ModelDecision, DocumentModelDecision
 
 
 class DecisionProviderInterface(ABC):
@@ -15,7 +15,7 @@ class DecisionProviderInterface(ABC):
         messages: Sequence[DecisionMessage],
         tools: Sequence[ToolSchema],
         timeout_seconds: float,
-    ) -> ModelDecision:
+    ) -> ModelDecision | DocumentModelDecision:
         """Return one validated proposal; do not execute tools or grant access.
 
         timeout_seconds is the positive remaining run allowance; adapters must

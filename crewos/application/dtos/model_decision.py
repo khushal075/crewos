@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints, model_validator
 
 from crewos.application.dtos.source_reference import SourceReference
+from crewos.application.dtos.document_answer import DocumentAnswer
 
 NonBlankText = Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1)]
 
@@ -35,3 +36,17 @@ ModelDecision = Annotated[
     ToolCallDecision | FinalAnswerDecision,
     Field(discriminator="type"),
 ]
+
+
+class DocumentFinalAnswerDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["document_answer"]
+    result: DocumentAnswer
+
+
+DocumentModelDecision = Annotated[
+    ToolCallDecision | DocumentFinalAnswerDecision, Field(discriminator="type")
+]
+AgentAnswer = FinalAnswerDecision | DocumentFinalAnswerDecision
+AgentAnswerMode = Literal["general", "document"]
