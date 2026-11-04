@@ -75,6 +75,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Metrics snapshot failed ({type(error).__name__}).", file=sys.stderr)
 
     print(answer.answer)
+    for source in answer.citations:
+        print(
+            f"Source: {source.document_id} version={source.document_version} chunk={source.chunk_index}"
+        )
     return 0
 
 
