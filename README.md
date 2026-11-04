@@ -2102,8 +2102,8 @@ complete a successful `search_documents` call. It then returns one of these shap
 Or `result` uses `outcome: "answered"` with answer text and observed structured
 citations. A general `final_answer` is invalid in this mode. Missing search or
 unobserved references fail validation. Both empty and nonempty search results can
-lead to insufficient evidence; the model assesses sufficiency, with no semantic
-backend judge in this increment. A successful insufficient-evidence run has run
+lead to insufficient evidence; the generator proposes the outcome and the
+evidence reviewer assesses support and abstention before acceptance (see below). A successful insufficient-evidence run has run
 state `succeeded` and answer outcome `insufficient_evidence`: execution state and
 answer outcome describe different things.
 
@@ -2114,9 +2114,53 @@ idempotency replay and resume preserve the registered mode. General jobs omit th
 default mode from serialized queue payloads to remain compatible with previously
 stored jobs. A reused idempotency key cannot change modes.
 
-No evidence check here proves factuality, original-question relevance, or coverage
-of every claim. The backend checks workflow and source identity, not meaning.
+No evidence check proves factuality or coverage of every claim. Workflow and
+source-identity checks are deterministic; semantic review is a fallible model
+assessment, described below.
 Existing limits still apply; allow enough decisions for a search and a final answer.
 Permission, model, storage, and capacity errors remain failures instead of being
 converted into an insufficient-evidence answer. Outcome metadata is logged without
 answer text or source content.
+
+
+### Document-answer support review
+
+Document mode now includes a separate evidence-review call before accepting an
+answer. It assesses evidence answerability, question relevance, factual claims, citation coverage,
+conflicting passages and whether abstention is justified. The backend requires
+an accepting verdict and verifies that supporting quotes exactly match observed,
+cited passages. Reviewer claim spans must also cover the answer text; this catches
+omitted clauses but is not proof of entailment. Rejected or uncertain reviews fail explicitly. Provider failures
+remain errors. General mode is unchanged.
+
+The reviewer is a replaceable interface; default composition uses the configured
+model in a separate call. `DOCUMENT_REVIEW_MODEL` can select a different installed
+model on the same endpoint; no private configuration is changed automatically.
+Document-mode model calls request native JSON-schema output and still validate
+responses locally. This adds latency and token usage under the existing
+run budget. Review receipts bind the question, answer and source snapshots for
+checkpoint recovery. A valid quote or positive model verdict is not proof of
+correctness, and using the same model can produce correlated errors.
+
+```bash
+# Inspect ten synthetic, explicitly labeled cases without model calls:
+poetry run python -m crewos.evaluation.evaluate_document_answers
+
+# Measure the configured model reviewer; requires a reachable model endpoint:
+poetry run python -m crewos.evaluation.evaluate_document_answers --live
+
+# Compare an installed reviewer model without changing the default:
+poetry run python -m crewos.evaluation.evaluate_document_answers --live --model MODEL_NAME
+```
+
+See [document-answer evaluation](docs/evaluation/document-answer-evaluation.md)
+for architecture, acceptance rules, resource limits, recovery behavior, fixture
+labels, interpretation and remaining risks. Scripted tests verify enforcement;
+only live calibration measures a model's agreement with the fixture labels.
+
+Recorded live evidence is available in the [document-answer evaluation guide](docs/evaluation/document-answer-evaluation.md#recorded-live-evidence--2026-11-04).
+The two end-to-end synthetic smoke cases passed. The current reviewer matched
+9/10 calibration labels, with one false acceptance of an irrelevant answer, so
+its quality check still exits nonzero. The reports retain earlier failures too;
+workflow implementation and a passing semantic-quality evaluation are different
+milestones. Do not infer production reliability from these small development cases.

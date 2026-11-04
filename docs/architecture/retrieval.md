@@ -5,7 +5,8 @@ BM25 strategies, a bounded current-tenant corpus reader, and offline evaluation.
 Agent integration exposes search_documents and validates structured citation
 provenance. There is no dedicated retrieval HTTP endpoint, embedding model,
 or vector store yet. An explicit document-answer mode enforces a successful
-search and structured source provenance, not semantic claim support.
+search, structured source provenance and a separate model-based support review.
+A positive review is a fallible assessment rather than proof of correctness.
 
 ```mermaid
 flowchart LR
@@ -307,3 +308,15 @@ queries, cite irrelevant observed passages, or produce an insufficient-evidence
 explanation with unsupported content. Claim support, retrieval coverage, ambiguity,
 and abstention quality need separate evaluation. Current source availability and
 grants are not refreshed at finalization; references identify observed evidence.
+
+
+## Document-answer semantic review
+
+Explicit document mode now includes a separate, replaceable evidence reviewer
+before final acceptance. Earlier provenance/workflow rules remain necessary but
+are not sufficient alone. The reviewer assesses claim support, citation coverage,
+question relevance, conflicts and abstention; deterministic validation checks the
+verdict and exact quoted evidence. Recovery requires a review receipt bound to
+the question, answer and observed passage snapshots. General mode is unchanged.
+See [the complete workflow and calibration guide](../evaluation/document-answer-evaluation.md)
+for acceptance criteria, budgets, tests, live commands and model-judge limitations.
