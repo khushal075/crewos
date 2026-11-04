@@ -1,0 +1,45 @@
+{
+  "model": "qwen2.5-coder:14b-instruct-q4_K_M",
+  "reviewer_model": "qwen2.5-coder:14b-instruct-q4_K_M",
+  "context_source": "synthetic trusted fixture; authentication not exercised",
+  "storage": "temporary SQLite; no tenant application documents used",
+  "cases": [
+    {
+      "case": "answerable",
+      "expected_outcome": "answered",
+      "result": {
+        "type": "document_answer",
+        "result": {
+          "outcome": "answered",
+          "answer": "For timeout failures, retry after 30 seconds. Do not retry HTTP 401 errors.",
+          "citations": [
+            {
+              "document_id": "00000000-0000-4000-8000-00000000000b",
+              "document_version": 1,
+              "chunk_index": 0
+            }
+          ]
+        }
+      },
+      "review_verdict": "supported",
+      "passed": true,
+      "error_class": null,
+      "duration_seconds": 39.719
+    },
+    {
+      "case": "missing_evidence",
+      "expected_outcome": "insufficient_evidence",
+      "result": {
+        "type": "document_answer",
+        "result": {
+          "outcome": "insufficient_evidence",
+          "explanation": "The search for 'certificate rotation interval' did not return any relevant passages."
+        }
+      },
+      "review_verdict": "appropriate_abstention",
+      "passed": true,
+      "error_class": null,
+      "duration_seconds": 13.158
+    }
+  ]
+}

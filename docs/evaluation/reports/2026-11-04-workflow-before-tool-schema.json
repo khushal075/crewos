@@ -1,0 +1,24 @@
+{
+  "model": "qwen2.5-coder:14b-instruct-q4_K_M",
+  "reviewer_model": "qwen2.5-coder:14b-instruct-q4_K_M",
+  "context_source": "synthetic trusted fixture; authentication not exercised",
+  "storage": "temporary SQLite; no tenant application documents used",
+  "cases": [
+    {
+      "case": "answerable",
+      "expected_outcome": "answered",
+      "result": null,
+      "passed": false,
+      "error_class": "DocumentAnswerError",
+      "duration_seconds": 14.753
+    },
+    {
+      "case": "missing_evidence",
+      "expected_outcome": "insufficient_evidence",
+      "result": null,
+      "passed": false,
+      "error_class": "DocumentAnswerError",
+      "duration_seconds": 8.685
+    }
+  ]
+}

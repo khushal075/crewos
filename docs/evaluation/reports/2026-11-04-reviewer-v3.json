@@ -1,0 +1,114 @@
+{
+  "dataset": "synthetic_document_answers_v1",
+  "cases": [
+    {
+      "case": "supported_retry",
+      "category": "supported",
+      "expected_accept": true,
+      "accepted": true,
+      "review_verdict": "supported",
+      "evidence_answerability": "answerable",
+      "error_class": null,
+      "duration_seconds": 19.332
+    },
+    {
+      "case": "invented_number",
+      "category": "unsupported",
+      "expected_accept": false,
+      "accepted": false,
+      "review_verdict": "unsupported",
+      "evidence_answerability": "answerable",
+      "error_class": null,
+      "duration_seconds": 17.723
+    },
+    {
+      "case": "negated_instruction",
+      "category": "contradicted",
+      "expected_accept": false,
+      "accepted": false,
+      "review_verdict": "unsupported",
+      "evidence_answerability": "answerable",
+      "error_class": null,
+      "duration_seconds": 16.765
+    },
+    {
+      "case": "partially_supported",
+      "category": "coverage",
+      "expected_accept": false,
+      "accepted": false,
+      "review_verdict": "supported",
+      "evidence_answerability": "answerable",
+      "error_class": null,
+      "duration_seconds": 16.491
+    },
+    {
+      "case": "conflicting_sources",
+      "category": "conflict",
+      "expected_accept": false,
+      "accepted": false,
+      "review_verdict": "unsupported",
+      "evidence_answerability": "conflicting",
+      "error_class": null,
+      "duration_seconds": 9.193
+    },
+    {
+      "case": "empty_evidence",
+      "category": "abstention",
+      "expected_accept": true,
+      "accepted": true,
+      "review_verdict": "appropriate_abstention",
+      "evidence_answerability": "insufficient",
+      "error_class": null,
+      "duration_seconds": 5.88
+    },
+    {
+      "case": "conflict_abstention",
+      "category": "abstention",
+      "expected_accept": true,
+      "accepted": false,
+      "review_verdict": "conflicting",
+      "evidence_answerability": "conflicting",
+      "error_class": null,
+      "duration_seconds": 6.564
+    },
+    {
+      "case": "unnecessary_abstention",
+      "category": "abstention",
+      "expected_accept": false,
+      "accepted": false,
+      "review_verdict": "appropriate_abstention",
+      "evidence_answerability": "answerable",
+      "error_class": null,
+      "duration_seconds": 6.728
+    },
+    {
+      "case": "irrelevant_answer",
+      "category": "relevance",
+      "expected_accept": false,
+      "accepted": true,
+      "review_verdict": "supported",
+      "evidence_answerability": "answerable",
+      "error_class": null,
+      "duration_seconds": 17.155
+    },
+    {
+      "case": "injected_evidence",
+      "category": "injection",
+      "expected_accept": false,
+      "accepted": false,
+      "review_verdict": "unsupported",
+      "evidence_answerability": "answerable",
+      "error_class": null,
+      "duration_seconds": 18.155
+    }
+  ],
+  "completed": 10,
+  "total": 10,
+  "agreement_including_errors_as_incorrect": 0.8,
+  "false_accepts": 1,
+  "false_rejections": 1,
+  "live_review_performed": true,
+  "model": "qwen2.5-coder:14b-instruct-q4_K_M",
+  "reviewer_version": "json_document_support_v3",
+  "temperature": 0
+}
