@@ -4,6 +4,8 @@ import time
 import sqlite3
 from decimal import Decimal
 
+from crewos.application.dtos.source_reference import SourceReference
+from crewos.application.services.citation_validation import validate_answer_citations
 from crewos.application.dtos.agent_run_job import AgentRunJob
 from crewos.application.dtos.decision_request import DecisionMessage
 from crewos.application.dtos.model_decision import FinalAnswerDecision
@@ -75,6 +77,13 @@ def execute_agent_job(payload: object) -> FinalAnswerDecision:
         control.persist(limits=limits)
         if record["checkpoint"].get("final_result"):
             answer = FinalAnswerDecision.model_validate(record["checkpoint"]["final_result"])
+            validate_answer_citations(
+                answer,
+                observed=[
+                    SourceReference.model_validate(item)
+                    for item in record["checkpoint"].get("observed_sources", [])
+                ],
+            )
         else:
             remaining = control.guard()
             if remaining <= 0:

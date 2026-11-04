@@ -286,3 +286,32 @@ def test_terminal_storage_failure_does_not_replace_original_execution_error(job_
         with pytest.raises(RuntimeError) as caught:
             execute_agent_job(job)
     assert caught.value is failure
+
+
+@pytest.mark.parametrize("observed", [True, False])
+def test_resumed_final_checkpoint_validates_citation_provenance(job_setup, observed):
+    from crewos.application.services.citation_validation import UnobservedCitationError
+    from crewos.core.agent_job_runner import get_run_store
+
+    job, _, provider, _, _ = job_setup
+    store = get_run_store()
+    first = store.claim({**job, "max_decisions": 5})
+    citation = {"document_id": str(uuid4()), "document_version": 1, "chunk_index": 0}
+    store.checkpoint(
+        first["id"],
+        first["tenant"],
+        first["lease_token"],
+        {
+            "final_result": {"type": "final_answer", "answer": "Guidance", "citations": [citation]},
+            "observed_sources": [citation] if observed else [],
+        },
+    )
+    store.finish(first["id"], first["tenant"], first["lease_token"], state="failed")
+    store.resume(first["id"], first["tenant"])
+    if observed:
+        assert len(execute_agent_job(job).citations) == 1
+    else:
+        with pytest.raises(UnobservedCitationError):
+            execute_agent_job(job)
+        assert store.get(job["agent_run_id"], "tenant_a")["state"] == "failed"
+    provider.assert_not_called()
