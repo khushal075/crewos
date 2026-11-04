@@ -16,6 +16,7 @@ from crewos.application.dtos.model_decision import (
 )
 from crewos.application.interfaces.decision_provider import DecisionProviderInterface
 from crewos.application.services.execution_control import get_execution_control
+from crewos.third_party.llm.document_decision_schema import build_document_decision_schema
 
 
 from crewos.application.services.decision_errors import DecisionResponseError, DecisionRefusedError
@@ -93,6 +94,18 @@ class JsonDecisionAdapter(DecisionProviderInterface):
             # Conservative local admission estimate, not a provider billing tokenizer.
             estimate = len((instructions + history).encode("utf-8")) + 64
             control.reserve(estimate, self._max_output_tokens)
+        format_options = {}
+        if self._answer_mode == "document":
+            format_options["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "document_decision",
+                    "strict": True,
+                    "schema": build_document_decision_schema(
+                        decision_schema=self._adapter.json_schema(), tools=tools
+                    ),
+                },
+            }
         response = self._model.invoke(
             [
                 SystemMessage(content=instructions),
@@ -100,6 +113,7 @@ class JsonDecisionAdapter(DecisionProviderInterface):
             ],
             timeout=effective_timeout,
             max_tokens=self._max_output_tokens,
+            **format_options,
         )
         if control is not None:
             usage = response.response_metadata.get("token_usage", {})
