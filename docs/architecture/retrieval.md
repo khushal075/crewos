@@ -1,9 +1,10 @@
 # Retrieval foundation and keyword baseline
 
-The module currently provides contracts, a permission-enforcing facade, an
-interchangeable search strategy, and a bounded keyword-overlap implementation.
-There is no HTTP endpoint, agent tool, embedding model, vector store, or RAG
-answer generation in this increment.
+The module provides contracts, a permission-enforcing facade, keyword-overlap and
+BM25 strategies, a bounded current-tenant corpus reader, and offline evaluation.
+Agent integration exposes search_documents and validates structured citation
+provenance. There is no dedicated retrieval HTTP endpoint, embedding model,
+vector store, or enforced evidence-based document-answer workflow yet.
 
 ```mermaid
 flowchart LR
@@ -253,3 +254,25 @@ or prevent prompt injection. A cited passage can still be irrelevant or wrong.
 Empty citations preserve non-document tasks and existing result compatibility,
 although serialized final results now include `citations: []`. Current CLI output
 prints any references; background results retain them as structured data.
+
+## Explicit document-answer contracts (not yet wired to execution)
+
+`application/dtos/document_answer.py` defines a discriminated union: the `outcome`
+field selects which shape is valid. `DocumentAnswerOutcome` enumerates the two
+values. This is separate from general-purpose `FinalAnswerDecision`.
+
+- `answered`: nonblank answer text and 1–20 distinct structured source references.
+- `insufficient_evidence`: a nonblank explanation, with no answer or citations fields.
+
+Zero search hits can motivate insufficient evidence, but nonempty search hits may
+also be irrelevant, incomplete, outdated, or contradictory. The shape does not
+judge any of those conditions. Authorization denials, storage failures, capacity
+limits, and timeouts remain operational exceptions, not insufficient-evidence
+outcomes. The explanation is a model proposal; its content is not validated by
+Pydantic. An answered proposal still needs provenance and semantic support checks.
+
+These contracts are intentionally not yet added to ModelDecision, APIs, or the
+agent loop. They do not enforce document mode, force a search, or replace existing
+answers. The next integration step must select document-answer behavior through
+trusted application configuration and preserve it through durable recovery;
+the model must not be able to bypass it by declaring an ordinary final answer.

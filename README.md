@@ -2054,3 +2054,17 @@ free-text references are not blocked by this step. The prompt requests citations
 for document-based answers; that request is not a backend guarantee. Sources refer
 to what was observed during the run, not a fresh availability/authorization check
 at finalization. Existing checkpoint retention and access requirements still apply.
+
+### Next foundation: document-answer outcomes
+
+A separate, currently unwired `DocumentAnswer` contract now distinguishes:
+
+- `answered`: answer text with at least one distinct structured source reference.
+- `insufficient_evidence`: an explanation of the evidence gap, without an answer
+  or citations field.
+
+This is contract groundwork for a document-answer workflow, not a change to
+existing agent behavior. It does not infer sufficiency from a search score or
+validate claim support. Even nonempty results can be insufficient. Permission,
+storage, and timeout failures remain errors rather than being hidden as missing
+evidence. See [the integration boundary](docs/architecture/retrieval.md#explicit-document-answer-contracts-not-yet-wired-to-execution).
