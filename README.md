@@ -2055,16 +2055,68 @@ for document-based answers; that request is not a backend guarantee. Sources ref
 to what was observed during the run, not a fresh availability/authorization check
 at finalization. Existing checkpoint retention and access requirements still apply.
 
-### Next foundation: document-answer outcomes
+### Document-answer outcomes
 
-A separate, currently unwired `DocumentAnswer` contract now distinguishes:
+The separate `DocumentAnswer` contract distinguishes:
 
 - `answered`: answer text with at least one distinct structured source reference.
 - `insufficient_evidence`: an explanation of the evidence gap, without an answer
   or citations field.
 
-This is contract groundwork for a document-answer workflow, not a change to
-existing agent behavior. It does not infer sufficiency from a search score or
-validate claim support. Even nonempty results can be insufficient. Permission,
+This contract is now used by the explicitly selected document-answer mode below.
+General mode retains its existing final-answer behavior. Neither mode infers
+sufficiency from a search score or validates claim support. Even nonempty results can be insufficient. Permission,
 storage, and timeout failures remain errors rather than being hidden as missing
-evidence. See [the integration boundary](docs/architecture/retrieval.md#explicit-document-answer-contracts-not-yet-wired-to-execution).
+evidence. See [the integration boundary](docs/architecture/retrieval.md#explicit-document-answer-contracts).
+
+### Run the explicit document-answer workflow
+
+For an authenticated tenant with `document.search` and `document.read` grants,
+with documents already ingested and the model/service dependencies configured:
+
+```bash
+poetry run python -m crewos.core.agent_demo \
+  --tenant-id tenant_a \
+  --answer-mode document \
+  --message "How should we recover from webhook timeouts?" \
+  --max-decisions 5
+```
+
+The background API accepts the same choice:
+
+```json
+{"message":"How should we recover from webhook timeouts?","answer_mode":"document","max_decisions":5}
+```
+
+Submit that body to the existing authenticated `POST /agents/runs` endpoint. Run
+creation and document-tool permissions remain separate; choosing a mode grants no
+permissions. Omit the mode or select `general` for existing agent behavior.
+
+In document mode, the model sees a mode-specific decision schema and must first
+complete a successful `search_documents` call. It then returns one of these shapes:
+
+```json
+{"type":"document_answer","result":{"outcome":"insufficient_evidence","explanation":"The passages do not describe credential rotation."}}
+```
+
+Or `result` uses `outcome: "answered"` with answer text and observed structured
+citations. A general `final_answer` is invalid in this mode. Missing search or
+unobserved references fail validation. Both empty and nonempty search results can
+lead to insufficient evidence; the model assesses sufficiency, with no semantic
+backend judge in this increment. A successful insufficient-evidence run has run
+state `succeeded` and answer outcome `insufficient_evidence`: execution state and
+answer outcome describe different things.
+
+CLI output displays the outcome and either the answer with source references or
+the explanation. Background results retain the nested structured answer. Mode,
+search completion and observed source identities survive durable checkpoints;
+idempotency replay and resume preserve the registered mode. General jobs omit the
+default mode from serialized queue payloads to remain compatible with previously
+stored jobs. A reused idempotency key cannot change modes.
+
+No evidence check here proves factuality, original-question relevance, or coverage
+of every claim. The backend checks workflow and source identity, not meaning.
+Existing limits still apply; allow enough decisions for a search and a final answer.
+Permission, model, storage, and capacity errors remain failures instead of being
+converted into an insufficient-evidence answer. Outcome metadata is logged without
+answer text or source content.

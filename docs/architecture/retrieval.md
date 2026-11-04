@@ -4,7 +4,8 @@ The module provides contracts, a permission-enforcing facade, keyword-overlap an
 BM25 strategies, a bounded current-tenant corpus reader, and offline evaluation.
 Agent integration exposes search_documents and validates structured citation
 provenance. There is no dedicated retrieval HTTP endpoint, embedding model,
-vector store, or enforced evidence-based document-answer workflow yet.
+or vector store yet. An explicit document-answer mode enforces a successful
+search and structured source provenance, not semantic claim support.
 
 ```mermaid
 flowchart LR
@@ -255,7 +256,7 @@ Empty citations preserve non-document tasks and existing result compatibility,
 although serialized final results now include `citations: []`. Current CLI output
 prints any references; background results retain them as structured data.
 
-## Explicit document-answer contracts (not yet wired to execution)
+## Explicit document-answer contracts
 
 `application/dtos/document_answer.py` defines a discriminated union: the `outcome`
 field selects which shape is valid. `DocumentAnswerOutcome` enumerates the two
@@ -271,8 +272,38 @@ limits, and timeouts remain operational exceptions, not insufficient-evidence
 outcomes. The explanation is a model proposal; its content is not validated by
 Pydantic. An answered proposal still needs provenance and semantic support checks.
 
-These contracts are intentionally not yet added to ModelDecision, APIs, or the
-agent loop. They do not enforce document mode, force a search, or replace existing
-answers. The next integration step must select document-answer behavior through
-trusted application configuration and preserve it through durable recovery;
-the model must not be able to bypass it by declaring an ordinary final answer.
+These contracts are integrated through the explicit document mode described below.
+General mode remains separate. The application fixes the mode from the configured
+CLI/API input and preserves it in the backend-created job and checkpoints. Model
+output cannot switch to a general final answer during a document-mode run.
+
+## Explicit document-mode execution
+
+`AgentAnswerMode` selects `general` (default) or `document` at composition. API
+submission copies that validated choice into the backend-created `AgentRunJob`.
+`JsonDecisionAdapter` and `AgentLoop` use the same mode-specific decision union:
+
+- General: `ToolCallDecision | FinalAnswerDecision`.
+- Document: `ToolCallDecision | DocumentFinalAnswerDecision`, whose `result` is
+  the discriminated `DocumentAnswer` contract.
+
+The document loop accepts a final outcome only after successful backend search,
+including a valid empty result. Answered outcomes must cite observed passages;
+insufficient-evidence explanations may follow empty or nonempty results. Ordinary
+final_answer proposals do not satisfy the document schema and can consume the
+existing bounded malformed-decision recovery allowance. Backend workflow/provenance
+failures fail the run; they are not automatically rewritten as abstentions.
+
+Checkpoints persist answer_mode and document_search_completed along with observed
+sources and history. A conflicting mode on recovery is rejected. The worker
+validates a checkpointed final result using the job's mode and repeats workflow
+checks before finalization. Exact job payload matching prevents delivery-side mode
+changes. Default general mode is omitted by the job serializer, preserving legacy
+payload matching; explicit document mode is stored and compared for idempotency.
+CLI rendering and background serialization preserve the two answer outcomes.
+
+This is a workflow gate, not semantic validation. A model may choose inadequate
+queries, cite irrelevant observed passages, or produce an insufficient-evidence
+explanation with unsupported content. Claim support, retrieval coverage, ambiguity,
+and abstention quality need separate evaluation. Current source availability and
+grants are not refreshed at finalization; references identify observed evidence.
