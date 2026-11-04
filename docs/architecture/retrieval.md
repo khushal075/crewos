@@ -236,3 +236,20 @@ boundary for authorization or a complete prompt-injection defense. Existing dura
 checkpoints store tool observations and therefore may contain retrieved text.
 Grounded generation, citation validation, and answer evaluation remain separate
 work; scripted integration tests establish observation delivery and access control.
+
+## Citation provenance in the agent lifecycle
+
+`SourceReference` identifies document ID, version and chunk index. Optional
+`FinalAnswerDecision.citations` are bounded and distinct. Only successful backend
+`search_documents` results extend the run's observed-source set; model arguments,
+caller-supplied tool history, and prose do not. The set is persisted with the
+existing history checkpoint. Before accepting a final answer, the loop checks
+that every structured citation belongs to that set. Resume of a final-answer
+checkpoint applies the same check without invoking a model again.
+
+The check fails closed on an unobserved identity. It does not attempt semantic
+claim support, require citations, parse prose references, refresh document access,
+or prevent prompt injection. A cited passage can still be irrelevant or wrong.
+Empty citations preserve non-document tasks and existing result compatibility,
+although serialized final results now include `citations: []`. Current CLI output
+prints any references; background results retain them as structured data.

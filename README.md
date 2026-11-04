@@ -2023,3 +2023,34 @@ re-execution may observe changed documents and different rankings.
 This step exposes evidence to the agent. It does not validate generated answers,
 require citations, or establish that a model followed the evidence. End-to-end
 tests use scripted model responses and verify plumbing, not model reasoning.
+
+### Structured source references in agent answers
+
+Final answers now support an optional `citations` list (at most 20 distinct
+references). Existing answers without this field remain valid and serialize an
+empty list. Example model output:
+
+```json
+{
+  "type": "final_answer",
+  "answer": "Use exponential backoff for timeout retries.",
+  "citations": [
+    {"document_id": "00000000-0000-4000-8000-000000000001", "document_version": 1, "chunk_index": 0}
+  ]
+}
+```
+
+The UUID above is illustrative; a real answer must copy an identity from that
+run's successful `search_documents` observations. The backend checks exact document
+ID, version, and zero-based chunk index before accepting the answer. Unknown
+references fail the run with `UnobservedCitationError`; they are not silently
+removed. User-supplied conversation text cannot add an observed source. The
+backend source set is checkpointed for recovery, and resumed final-answer
+checkpoints are validated as well. CLI output displays the structured references.
+
+This checks **citation provenance**, not whether the text supports each claim,
+whether a source is true, or whether every claim is cited. Uncited answers and
+free-text references are not blocked by this step. The prompt requests citations
+for document-based answers; that request is not a backend guarantee. Sources refer
+to what was observed during the run, not a fresh availability/authorization check
+at finalization. Existing checkpoint retention and access requirements still apply.
