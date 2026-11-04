@@ -41,7 +41,7 @@ def test_agent_success_log_hides_answer_but_backend_retains_it(caplog):
             },
         )
     assert result.info is None
-    expected = {"type": "final_answer", "answer": SECRET}
+    expected = {"type": "final_answer", "answer": SECRET, "citations": []}
     assert result.retval == expected
     assert backend.get_result(identifier) == expected
     assert any("succeeded in" in record.getMessage() for record in caplog.records)

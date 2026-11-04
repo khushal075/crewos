@@ -2,7 +2,9 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints, model_validator
+
+from crewos.application.dtos.source_reference import SourceReference
 
 NonBlankText = Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1)]
 
@@ -20,6 +22,13 @@ class FinalAnswerDecision(BaseModel):
 
     type: Literal["final_answer"]
     answer: NonBlankText
+    citations: tuple[SourceReference, ...] = Field(default=(), max_length=20)
+
+    @model_validator(mode="after")
+    def unique_citations(self):
+        if len(set(self.citations)) != len(self.citations):
+            raise ValueError("Citations must be distinct source references")
+        return self
 
 
 ModelDecision = Annotated[

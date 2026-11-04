@@ -35,7 +35,7 @@ def test_valid_delivery_calls_runner_and_returns_json_ready_answer():
         execute.return_value = FinalAnswerDecision(type="final_answer", answer="Done")
         result = invoke(payload)
     execute.assert_called_once_with({**payload, "max_decisions": 5})
-    assert result == {"type": "final_answer", "answer": "Done"}
+    assert result == {"type": "final_answer", "answer": "Done", "citations": []}
 
 
 @pytest.mark.parametrize(
