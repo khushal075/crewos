@@ -10,6 +10,9 @@ from uuid import UUID, uuid4
 from pydantic import UUID4, TypeAdapter, ValidationError
 from redis.exceptions import RedisError
 
+from crewos.application.dtos.source_reference import SourceReference
+from crewos.application.services.citation_validation import validate_answer_citations
+from crewos.retrieval import RetrievalResult
 from crewos.application.dtos.decision_request import DecisionMessage
 from crewos.application.dtos.model_decision import FinalAnswerDecision, ModelDecision
 from crewos.application.dtos.tool_execution_context import ToolExecutionContext
@@ -90,6 +93,10 @@ class AgentLoop:
         step = control.state.get("decisions", 0)
         tool_calls = control.state.get("tool_calls", 0)
         tools_completed = control.state.get("tools_completed", 0)
+        observed_sources = {
+            SourceReference.model_validate(item)
+            for item in control.state.get("observed_sources", [])
+        }
         phase = "setup"
         phase_started = started
         tool_call_id = None
@@ -144,6 +151,13 @@ class AgentLoop:
                 tools_completed=tools_completed,
                 pending=pending,
                 replay_safe=replay_safe,
+                observed_sources=[
+                    source.model_dump(mode="json")
+                    for source in sorted(
+                        observed_sources,
+                        key=lambda s: (str(s.document_id), s.document_version, s.chunk_index),
+                    )
+                ],
             )
 
         emit(
@@ -220,6 +234,8 @@ class AgentLoop:
                     )
                 check_deadline()
                 if isinstance(decision, FinalAnswerDecision):
+                    phase = "citation_validation"
+                    validate_answer_citations(decision, observed=observed_sources)
                     control.persist(final_result=decision.model_dump(mode="json"))
                     measure("run", "success", started)
                     emit(
@@ -287,6 +303,15 @@ class AgentLoop:
                     )
                     checkpoint(history)
                     continue
+                if decision.name == "search_documents" and isinstance(result, RetrievalResult):
+                    observed_sources.update(
+                        SourceReference(
+                            document_id=hit.document_id,
+                            document_version=hit.document_version,
+                            chunk_index=hit.chunk.index,
+                        )
+                        for hit in result.passages
+                    )
                 tools_completed += 1
                 measure("tool", "success", phase_started)
                 emit(
