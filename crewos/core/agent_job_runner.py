@@ -15,6 +15,9 @@ from crewos.application.dtos.model_decision import (
     AgentAnswer,
 )
 from crewos.application.services.document_answer_validation import validate_document_answer
+from crewos.application.dtos.document_review import DocumentReviewRequest
+from crewos.application.services.document_review_validation import validate_review_receipt
+from crewos.retrieval import RetrievedPassage
 from crewos.application.interfaces.run_store import RunCancelled, RunLeaseLost
 from crewos.application.services.execution_control import ExecutionControl, ResourceBudgetExceeded
 from crewos.application.use_cases.agent_loop import AgentDeadlineExceeded, DecisionLimitExceeded
@@ -97,6 +100,17 @@ def execute_agent_job(payload: object) -> AgentAnswer:
                     answer,
                     observed=observed,
                     search_completed=record["checkpoint"].get("document_search_completed", False),
+                )
+                validate_review_receipt(
+                    DocumentReviewRequest(
+                        question=record["checkpoint"].get("document_question", job.message),
+                        answer=answer.result,
+                        passages=tuple(
+                            RetrievedPassage.model_validate(item)
+                            for item in record["checkpoint"].get("observed_passages", [])
+                        ),
+                    ),
+                    record["checkpoint"].get("document_review", {}),
                 )
             else:
                 validate_answer_citations(answer, observed=observed)

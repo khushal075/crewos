@@ -204,6 +204,14 @@ def test_document_mode_cli_renders_outcome_and_sources(
         ),
         AIMessage(content=json.dumps({"type": "document_answer", "result": result})),
     ]
+    from tests.document_review_helpers import support_review, abstention_review
+
+    review = support_review(result["citations"][0]) if answered else abstention_review()
+    if answered:
+        review["claims"][0]["claim"] = result["answer"]
+    model.invoke.side_effect = list(model.invoke.side_effect) + [
+        AIMessage(content=json.dumps(review))
+    ]
     assert main(ARGS + ["--answer-mode", "document"]) == 0
     output = capsys.readouterr().out
     assert f"Outcome: {result['outcome']}" in output

@@ -343,6 +343,33 @@ def test_document_worker_checkpoint_requires_search_on_resume(job_setup, search_
     store.finish(first["id"], first["tenant"], first["lease_token"], state="failed")
     store.resume(first["id"], first["tenant"])
     if search_completed:
+        from crewos.application.dtos.document_review import DocumentReview, DocumentReviewRequest
+        from crewos.application.dtos.document_answer import InsufficientEvidenceAnswer
+        from crewos.application.services.document_review_validation import review_receipt
+        from tests.document_review_helpers import abstention_review
+
+        # Simulate the backend review receipt checkpointed before a finish failure.
+        record = store.claim(job)
+        store.checkpoint(
+            record["id"],
+            record["tenant"],
+            record["lease_token"],
+            {
+                **record["checkpoint"],
+                "document_review": review_receipt(
+                    DocumentReviewRequest(
+                        question=job["message"],
+                        answer=InsufficientEvidenceAnswer(
+                            outcome="insufficient_evidence", explanation="No evidence"
+                        ),
+                        passages=(),
+                    ),
+                    DocumentReview.model_validate(abstention_review()),
+                ),
+            },
+        )
+        store.finish(record["id"], record["tenant"], record["lease_token"], state="failed")
+        store.resume(record["id"], record["tenant"])
         assert execute_agent_job(job).result.outcome == "insufficient_evidence"
     else:
         with pytest.raises(DocumentAnswerError):
@@ -373,13 +400,19 @@ def test_document_worker_search_and_result_survive_cached_delivery(job_setup, mo
             content='{"type":"document_answer","result":{"outcome":"insufficient_evidence","explanation":"No matching guidance"}}'
         ),
     ]
+    import json
+    from tests.document_review_helpers import abstention_review
+
+    model.invoke.side_effect = list(model.invoke.side_effect) + [
+        AIMessage(content=json.dumps(abstention_review()))
+    ]
     with TemporaryDirectory() as directory:
         documents = build_sqlite_document_store(Path(directory) / "documents.sqlite3")
         monkeypatch.setattr("crewos.core.retrieval_setup.get_document_store", lambda: documents)
         first = execute_agent_job(job)
         assert first.result.outcome == "insufficient_evidence"
         assert execute_agent_job(job) == first
-    assert model.invoke.call_count == 2
+    assert model.invoke.call_count == 3
     record = store.get(job["agent_run_id"], "tenant_a")
     assert record["checkpoint"]["answer_mode"] == "document"
     assert record["checkpoint"]["document_search_completed"] is True

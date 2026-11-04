@@ -13,7 +13,14 @@ from redis.exceptions import RedisError
 from crewos.application.dtos.source_reference import SourceReference
 from crewos.application.services.citation_validation import validate_answer_citations
 from crewos.application.services.document_answer_validation import validate_document_answer
-from crewos.retrieval import RetrievalResult
+from crewos.retrieval import RetrievalResult, RetrievedPassage
+from crewos.application.dtos.document_review import DocumentReviewRequest, DocumentReview
+from crewos.application.interfaces.document_answer_reviewer import DocumentAnswerReviewerInterface
+from crewos.application.services.document_review_validation import (
+    review_receipt,
+    source_key,
+    DocumentReviewError,
+)
 from crewos.application.dtos.decision_request import DecisionMessage
 from crewos.application.dtos.model_decision import (
     FinalAnswerDecision,
@@ -53,6 +60,7 @@ class AgentLoop:
         dispatcher: ToolDispatcher,
         max_decisions: int = 5,
         answer_mode: AgentAnswerMode = "general",
+        document_reviewer: DocumentAnswerReviewerInterface | None = None,
         max_duration_seconds: float = 120.0,
         logger: logging.Logger | None = None,
         metrics: AgentMetricsInterface | None = None,
@@ -74,6 +82,9 @@ class AgentLoop:
         self._metrics = metrics
         self._control_options = control_options or {"max_recoveries": 0}
         self._answer_mode = TypeAdapter(AgentAnswerMode).validate_python(answer_mode)
+        if answer_mode == "document" and document_reviewer is None:
+            raise ValueError("Document mode requires an evidence reviewer")
+        self._document_reviewer = document_reviewer
         self._decision_adapter = TypeAdapter(
             DocumentModelDecision if answer_mode == "document" else ModelDecision
         )
@@ -110,6 +121,13 @@ class AgentLoop:
             for item in control.state.get("observed_sources", [])
         }
         document_search_completed = control.state.get("document_search_completed", False)
+        observed_passages = {}
+        for item in control.state.get("observed_passages", []):
+            passage = RetrievedPassage.model_validate(item)
+            observed_passages[source_key(passage)] = passage
+        document_question = control.state.get("document_question") or next(
+            (message.content for message in reversed(messages) if message.role == "user"), ""
+        )
         phase = "setup"
         phase_started = started
         tool_call_id = None
@@ -166,6 +184,10 @@ class AgentLoop:
                 replay_safe=replay_safe,
                 answer_mode=self._answer_mode,
                 document_search_completed=document_search_completed,
+                document_question=document_question,
+                observed_passages=[
+                    passage.model_dump(mode="json") for passage in observed_passages.values()
+                ],
                 observed_sources=[
                     source.model_dump(mode="json")
                     for source in sorted(
@@ -261,6 +283,40 @@ class AgentLoop:
                             observed=observed_sources,
                             search_completed=document_search_completed,
                         )
+                        phase = "document_review"
+                        review_started = perf_counter()
+                        review_request = DocumentReviewRequest(
+                            question=document_question,
+                            answer=decision.result,
+                            passages=tuple(observed_passages.values()),
+                        )
+                        emit("agent_document_review_started", step=step)
+                        try:
+                            review = self._document_reviewer.review(
+                                request=review_request, timeout_seconds=remaining_seconds()
+                            )
+                            review = DocumentReview.model_validate_json(review.model_dump_json())
+                            check_deadline()
+                            receipt = review_receipt(review_request, review)
+                            control.persist(document_review=receipt)
+                        except Exception as error:
+                            measure("model", "error", review_started)
+                            emit(
+                                "agent_document_review_failed",
+                                level=logging.WARNING,
+                                step=step,
+                                error_type=type(error).__name__,
+                                duration_ms=round((perf_counter() - review_started) * 1000, 3),
+                            )
+                            raise
+                        measure("model", "success", review_started)
+                        emit(
+                            "agent_document_review_completed",
+                            step=step,
+                            verdict=review.verdict,
+                            claims=len(review.claims),
+                            duration_ms=round((perf_counter() - review_started) * 1000, 3),
+                        )
                     else:
                         validate_answer_citations(decision, observed=observed_sources)
                     control.persist(final_result=decision.model_dump(mode="json"))
@@ -338,6 +394,25 @@ class AgentLoop:
                     continue
                 if decision.name == "search_documents" and isinstance(result, RetrievalResult):
                     document_search_completed = True
+                    if self._answer_mode == "document":
+                        for passage in result.passages:
+                            key = source_key(passage)
+                            if key in observed_passages and observed_passages[key] != passage:
+                                raise DocumentReviewError(
+                                    "Conflicting payloads for one source identity"
+                                )
+                            observed_passages[key] = passage
+                        if (
+                            len(observed_passages) > 100
+                            or sum(
+                                len(p.model_dump_json().encode())
+                                for p in observed_passages.values()
+                            )
+                            > 128_000
+                        ):
+                            raise DocumentReviewError(
+                                "Accumulated document evidence exceeds review admission"
+                            )
                     observed_sources.update(
                         SourceReference(
                             document_id=hit.document_id,
