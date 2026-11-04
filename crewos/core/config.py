@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     # Single-host document lifecycle and durable submissions.
     DOCUMENT_DB_PATH: str = "var/documents.sqlite3"
+    DOCUMENT_REVIEW_MODEL: str | None = Field(default=None, min_length=1, max_length=256)
     DOCUMENT_JOB_LEASE_SECONDS: float = Field(default=180, gt=150, allow_inf_nan=False)
     DOCUMENT_JOB_MAX_ATTEMPTS: int = Field(default=3, ge=1, le=10)
     DOCUMENT_MAX_REQUEST_BYTES: int = Field(default=8_100_000, ge=1024, le=16_000_000)
