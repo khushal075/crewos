@@ -657,3 +657,27 @@ not promise secure erasure from WAL files or backups.
 This step does not automatically connect source deletion to vector cleanup. Source
 authorization/current-version checks remain necessary. Durable source-event
 propagation and obsolete-version cleanup are the next lifecycle steps.
+
+## Source-deletion cleanup outbox contracts (not wired yet)
+
+Ingestion owns `document_cleanup_contracts.py` and
+`document_cleanup_outbox.py`. `DocumentDeletedEvent` is an immutable backend-owned
+fact containing schema/type, event ID, tenant/document IDs and an aware occurrence
+time. No source text, vectors, credentials or permission claims are included.
+`DocumentCleanupClaim` adds a worker lease token, attempt and expiry; it represents
+delivery ownership, not application authorization. Failure metadata uses a small
+`CleanupFailureCode` enum rather than raw exception strings.
+
+`DocumentCleanupOutboxInterface` defines tenant-scoped claim/reclaim, completion
+and retry operations. Its eventual adapter must atomically lease eligible events,
+reclaim expired leases with fresh tokens and reject stale acknowledgements. The
+initial consumer is vector cleanup; multiple future consumers need independent
+delivery records. Worker crashes recover through lease expiry; retry scheduling
+must not silently discard cleanup work.
+
+There is intentionally no independent append operation. The next implementation
+step must save the event inside the same source-database transaction as deletion.
+A worker can then call the vector store's idempotent fenced deletion and acknowledge
+the event. A crash after vector cleanup but before acknowledgement will replay
+safely. These contracts alone do not create an outbox table, record events, schedule
+workers or change the existing deletion API. Automatic propagation remains pending.

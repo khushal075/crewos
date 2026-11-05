@@ -2220,3 +2220,10 @@ migrate to schema 2 on open. This is permanent deletion for that document ID, no
 a cache-reset operation. Automatic propagation from source-document deletion and
 obsolete-version cleanup remain to be implemented. See
 [cache deletion semantics](docs/architecture/retrieval.md#durable-cache-deletion-fences).
+
+### Planned source-deletion propagation boundary
+
+Ingestion now defines validated, content-free document-deletion events, temporary
+cleanup claims and a tenant-scoped outbox interface. These are contracts only.
+Transactional event recording and a cleanup worker remain the next steps; deleting
+a source does not yet automatically invoke vector-cache deletion.
