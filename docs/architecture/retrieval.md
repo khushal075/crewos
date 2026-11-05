@@ -320,3 +320,59 @@ verdict and exact quoted evidence. Recovery requires a review receipt bound to
 the question, answer and observed passage snapshots. General mode is unchanged.
 See [the complete workflow and calibration guide](../evaluation/document-answer-evaluation.md)
 for acceptance criteria, budgets, tests, live commands and model-judge limitations.
+
+## Embedding boundary (contracts only)
+
+`embedding_contracts.py` defines immutable `TextEmbeddingRequest` and
+`EmbeddingBatch`; `text_embedding.py` defines `TextEmbeddingInterface`. The Ollama
+provider adapter is described below. Embedding storage, vector search and retrieval
+runtime wiring are not implemented yet.
+Existing keyword/BM25 behavior is unchanged.
+
+Requests preserve exact text and admit 1–128 nonblank inputs, at most 8,192
+characters each and 65,536 characters total. These are application admission
+limits, not token guarantees; adapters must also enforce provider limits. Results
+contain model identity/revision, 1–16,384 dimensions and ordered finite numeric
+vectors. Booleans and numeric strings are rejected. Adapters and callers must
+use `validate_for(request)` to check output count. Shape validation cannot prove
+that a provider preserved ordering or generated meaningful representations.
+
+Corpus and query embeddings must share compatible configuration, including model
+revision, preprocessing, task modes and normalization; equal dimensions do not
+prove compatibility. A later storage contract must preserve this configuration.
+Authorization must happen before sending source text to a provider. No permission
+grants, network calls, provider credentials or logging of text/vectors are added.
+
+## Native Ollama embedding adapter
+
+`third_party/llm/ollama_embedding_adapter.py` implements the embedding protocol
+without inheriting from it. `core/embedding_setup.py` composes it only when called
+explicitly; existing agent search remains BM25. No new dependency is required.
+
+Configure `EMBEDDING_BASE_URL` as a native HTTP(S) origin, without `/v1`, credentials,
+query parameters or a path. Set `EMBEDDING_MODEL` to the exact installed model tag,
+`EMBEDDING_MODEL_REVISION` to its inspected digest and `EMBEDDING_DIMENSIONS` to its
+verified output length. No chat model is substituted and no model is downloaded.
+Revision is operator-supplied provenance: this adapter does not verify the installed
+digest or prevent a mutable tag changing. Pin/verify model artifacts before building
+persistent indexes; equal names or dimensions alone do not prove compatibility.
+
+The adapter posts ordered texts to `/api/embed` with `truncate=false`, so an input
+that exceeds the model context should fail rather than silently lose content. It
+checks the returned model label, finite vectors, configured dimensions and output
+count. It does not request reduced dimensions or add task-specific prefixes. Model
+selection must account for any required query/document formatting.
+
+HTTP/transport errors and invalid results raise `EmbeddingProviderError`; there is
+no automatic retry, fallback or empty-result substitution. Error messages omit
+provider bodies, source text and vectors. Responses are admitted up to 32 MB by
+default. Redirects and environment proxies are disabled to avoid silently forwarding
+text elsewhere. Timeout is a per-socket operation bound, not a total request deadline;
+a slow streaming response or DNS resolution can exceed it. Runtime deadline and usage
+budget integration remain future work before this adapter is exposed as an agent tool.
+Remote authentication and proxy support are not implemented.
+
+Tests use controlled responses, requiring no model or credentials. Inspection of
+local Ollama on 2026-11-05 found only completion models, so no live embedding-quality
+or model inference claim is made. A dedicated embedding model is needed for the
+next live check. Native API reference: https://docs.ollama.com/api/embed.

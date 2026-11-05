@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "llama3"
     API_KEY: str = ""
 
+    # Native embedding endpoint; separate from the chat /v1 endpoint. Disabled until configured.
+    EMBEDDING_BASE_URL: str = "http://localhost:11434"
+    EMBEDDING_MODEL: str | None = None
+    EMBEDDING_MODEL_REVISION: str | None = None
+    EMBEDDING_DIMENSIONS: int | None = Field(default=None, ge=1, le=16384)
+    EMBEDDING_TIMEOUT: float = Field(default=30, gt=0, le=120, allow_inf_nan=False)
+
     # Tenant-scoped API tokens. No configured token means access is denied.
     TENANT_API_KEYS: dict[str, SecretStr] = Field(default_factory=dict)
     TENANT_PERMISSIONS: dict[str, frozenset[Permission]] = Field(default_factory=dict)
