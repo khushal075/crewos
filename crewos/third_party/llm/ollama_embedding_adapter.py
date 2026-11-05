@@ -8,6 +8,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from crewos.application.services.execution_control import get_execution_control
 from crewos.retrieval.embedding_contracts import EmbeddingBatch, ModelLabel, TextEmbeddingRequest
 
 
@@ -73,8 +74,12 @@ class OllamaEmbeddingProvider:
             headers={"Content-Type": "application/json", "Accept": "application/json"},
             method="POST",
         )
+        control = get_execution_control()
+        timeout = self._config.timeout_seconds
+        if control is not None:
+            timeout = min(timeout, control.tool_remaining())
         try:
-            with self._opener.open(wire_request, timeout=self._config.timeout_seconds) as response:
+            with self._opener.open(wire_request, timeout=timeout) as response:
                 raw = response.read(self._config.max_response_bytes + 1)
         except HTTPError as error:
             status = error.code
@@ -84,6 +89,8 @@ class OllamaEmbeddingProvider:
             ) from None
         except (URLError, OSError, HTTPException):
             raise EmbeddingProviderError("Ollama embedding transport failed") from None
+        if control is not None:
+            control.tool_remaining()
         if len(raw) > self._config.max_response_bytes:
             raise EmbeddingProviderError("Ollama embedding response exceeded admission limit")
         try:

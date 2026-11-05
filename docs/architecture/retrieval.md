@@ -473,3 +473,22 @@ snapshots against indexed identities on reads. Reads admit scoped record counts
 and actual serialized UTF-8 bytes before decoding. Deletion is tenant-scoped and
 idempotent. Writes above 32 MB fail explicitly. This is single-host persistence,
 not an approximate-nearest-neighbor index or a multi-host database.
+
+## Bounded chunk embedding and cache reuse
+
+`DocumentEmbeddingIndexer` prepares document-prefixed inputs without altering source
+passages, batches at 128 inputs/65,536 characters and stores validated vectors.
+It verifies provider model/revision/dimensions against `EmbeddingSpace`, and validates
+cached records against the exact current source passage. Only missing chunks are
+embedded; prior successful batches can be reused after a later batch fails. This
+is read-through cache preparation, not atomic publication of a complete index.
+
+`identity_v1` preprocessing and provider normalization are currently implemented;
+other declared configurations fail explicitly. Input limits include prefixes and
+oversized chunks fail rather than truncate. A per-search UTF-8 byte budget bounds
+embedding work. Active agent execution reserves those bytes conservatively as input
+tokens and checks cancellation/deadlines between calls; native HTTP timeouts are
+clamped to the remaining tool budget. This is conservative admission, not measured
+token usage. Priced agent runs fail before embedding calls until separate embedding
+price accounting exists; chat-model rates must not silently price embedding work.
+Operational events contain tenant/counts, not text, queries, vectors or credentials.

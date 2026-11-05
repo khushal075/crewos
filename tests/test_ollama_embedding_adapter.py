@@ -202,3 +202,13 @@ def test_factory_builds_provider_without_network(monkeypatch):
     )
     assert isinstance(build_text_embedding_provider(settings), OllamaEmbeddingProvider)
     opener.open.assert_not_called()
+
+
+def test_active_execution_budget_limits_transport_timeout(monkeypatch):
+    from crewos.application.services.execution_control import ExecutionControl, execution_scope
+
+    adapter, opener = provider(monkeypatch)
+    control = ExecutionControl()
+    with execution_scope(control), control.tool_budget(5):
+        adapter.embed(request=TextEmbeddingRequest(texts=["one", "two"]))
+    assert 0 < opener.open.call_args.kwargs["timeout"] <= 5
