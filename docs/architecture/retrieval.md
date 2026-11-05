@@ -376,3 +376,44 @@ Tests use controlled responses, requiring no model or credentials. Inspection of
 local Ollama on 2026-11-05 found only completion models, so no live embedding-quality
 or model inference claim is made. A dedicated embedding model is needed for the
 next live check. Native API reference: https://docs.ollama.com/api/embed.
+
+## Explicit live embedding smoke command
+
+`poetry run python -m crewos.retrieval.embedding_demo --help` describes an opt-in
+smoke runner. It sends two fixed synthetic integration examples, one with a nomic
+`search_document:` prefix and one with `search_query:`. These prefixes are model-
+specific and are not automatically applied by the generic provider adapter.
+
+1. Install the dedicated model with `ollama pull nomic-embed-text:v1.5`.
+2. Inspect `curl http://localhost:11434/api/tags` for the exact installed tag and digest.
+3. Inspect model information using `/api/show` to establish the expected dimensions.
+4. Run the command below, substituting the inspected values:
+
+```bash
+poetry run python -m crewos.retrieval.embedding_demo \
+  --model nomic-embed-text:v1.5 \
+  --revision INSTALLED_MODEL_DIGEST \
+  --dimensions VERIFIED_DIMENSIONS
+```
+
+The runner prints a JSON summary with counts, dimensions, configured revision and
+actual elapsed time, without printing vectors. It requires finite nonzero norms
+and one vector per input. It does not measure semantic relevance, verify the digest,
+modify `.env.local`, store vectors, change retrieval or authenticate a real tenant.
+Failures return exit code 1. Tests use controlled providers and do not download models.
+
+On 2026-11-05 the installation attempt failed because the Ollama registry connection
+was refused. At that point no dedicated embedding model was installed and no successful live
+inference report was produced. The subsequent successful check is recorded below.
+Model reference: https://ollama.com/library/nomic-embed-text.
+
+## Successful live inference
+
+A subsequent local inspection on 2026-11-05 found `nomic-embed-text:v1.5` installed
+with digest `0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f`,
+embedding capability and 768 output dimensions. The real adapter smoke command
+returned two finite nonzero 768-dimensional vectors in 1.153174 seconds. See
+[the actual JSON report](../evaluation/reports/2026-11-05-embedding-smoke.json).
+The digest was inspected separately via `/api/tags`; the adapter itself still does
+not verify it. This is one inference smoke check, not a latency benchmark or relevance
+evaluation. It does not exercise tenant authentication, indexing or vector retrieval.

@@ -1,0 +1,13 @@
+{
+  "check": "embedding_inference_smoke",
+  "model_id": "nomic-embed-text:v1.5",
+  "configured_model_revision": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+  "revision_verified_by_adapter": false,
+  "dimensions": 768,
+  "input_count": 2,
+  "vector_count": 2,
+  "all_vectors_nonzero": true,
+  "elapsed_seconds": 1.153174,
+  "data": "synthetic integration example with explicit nomic task prefixes",
+  "scope": "shape and inference only; not semantic relevance evaluation"
+}
