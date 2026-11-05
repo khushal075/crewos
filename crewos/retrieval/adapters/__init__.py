@@ -1,0 +1,1 @@
+"""Retrieval-owned storage adapters."""

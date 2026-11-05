@@ -1,4 +1,4 @@
-"""Tenant-scoped derived-vector persistence boundary; no adapter is implemented yet."""
+"""Tenant-scoped derived-vector persistence boundary; adapters must enforce scope and admission."""
 
 from typing import Protocol
 from uuid import UUID

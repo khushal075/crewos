@@ -463,3 +463,13 @@ coverage before ranking; incomplete or stale derived data must not be presented 
 a complete current index. Deletion fencing and index publication require lifecycle
 coordination beyond this interface. No database adapter, vector writes, vector search
 or automatic ingestion wiring is implemented in this step.
+
+## SQLite embedding persistence
+
+`adapters/sqlite_chunk_embedding_store.py` implements the storage interface using
+a dedicated file with application/schema identifiers and private file permissions.
+It revalidates writes, uses transactional replay/conflict handling and validates
+snapshots against indexed identities on reads. Reads admit scoped record counts
+and actual serialized UTF-8 bytes before decoding. Deletion is tenant-scoped and
+idempotent. Writes above 32 MB fail explicitly. This is single-host persistence,
+not an approximate-nearest-neighbor index or a multi-host database.
