@@ -48,3 +48,20 @@ def build_bm25_retrieval(
         ),
         executor=executor,
     )
+
+
+def build_vector_retrieval(
+    *, reader, executor, provider, store, space, **limits
+) -> RetrievalFacade:
+    """Compose exact vector search behind the existing dual-permission gate."""
+    from crewos.retrieval.document_embedding_indexer import DocumentEmbeddingIndexer
+    from crewos.retrieval.strategies.vector import VectorRetriever
+
+    return RetrievalFacade(
+        retriever=VectorRetriever(
+            reader,
+            indexer=DocumentEmbeddingIndexer(provider=provider, store=store, space=space),
+            **limits,
+        ),
+        executor=executor,
+    )

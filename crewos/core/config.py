@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from pydantic import ConfigDict, Field, SecretStr, model_validator
 from decimal import Decimal
+from typing import Literal
 from crewos.application.dtos.tool_execution_context import Permission
 
 
@@ -18,6 +19,15 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = ""
     LLM_MODEL: str = "llama3"
     API_KEY: str = ""
+
+    # Existing search remains BM25 until vector mode is explicitly selected.
+    RETRIEVAL_STRATEGY: Literal["bm25", "vector"] = "bm25"
+    EMBEDDING_DB_PATH: str = "var/embeddings.sqlite3"
+    EMBEDDING_DOCUMENT_PREFIX: str = ""
+    EMBEDDING_QUERY_PREFIX: str = ""
+    VECTOR_MAX_CHUNKS: int = Field(default=512, ge=1, le=4096)
+    VECTOR_MAX_EMBEDDING_BYTES: int = Field(default=32_000_000, ge=1024, le=128_000_000)
+    VECTOR_MAX_INPUT_BYTES: int = Field(default=262144, ge=1024, le=4_000_000)
 
     # Native embedding endpoint; separate from the chat /v1 endpoint. Disabled until configured.
     EMBEDDING_BASE_URL: str = "http://localhost:11434"

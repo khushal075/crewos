@@ -3,8 +3,9 @@
 The module provides contracts, a permission-enforcing facade, keyword-overlap and
 BM25 strategies, a bounded current-tenant corpus reader, and offline evaluation.
 Agent integration exposes search_documents and validates structured citation
-provenance. There is no dedicated retrieval HTTP endpoint, embedding model,
-or vector store yet. An explicit document-answer mode enforces a successful
+provenance. There is no dedicated retrieval HTTP endpoint. Native Ollama embeddings and a
+persistent, bounded exact-vector strategy are now available as explicit opt-ins;
+BM25 remains the default. An explicit document-answer mode enforces a successful
 search, structured source provenance and a separate model-based support review.
 A positive review is a fallible assessment rather than proof of correctness.
 
@@ -492,3 +493,74 @@ clamped to the remaining tool budget. This is conservative admission, not measur
 token usage. Priced agent runs fail before embedding calls until separate embedding
 price accounting exists; chat-model rates must not silently price embedding work.
 Operational events contain tenant/counts, not text, queries, vectors or credentials.
+
+## Opt-in exact vector retrieval
+
+`VectorRetriever` implements `PassageRetrieverInterface` and is composed through
+`build_vector_retrieval`. The existing `RetrievalFacade` still requires both
+`document.search` and `document.read` before source/cache/provider access. Agent
+`search_documents` can use vector retrieval without changing its argument or result
+contracts. Core setup is lazy so denied requests cannot initialize the embedding DB.
+
+Flow:
+
+```mermaid
+flowchart TD
+    Q[Authorized question] --> S[Read current tenant source snapshot]
+    S --> A[Admit corpus and prepared inputs]
+    A --> E[Embed question with query prefix]
+    E --> C[Read exact source-version and configuration cache]
+    C --> M[Embed and persist missing chunks]
+    M --> R[Cosine rank all admitted current passages]
+    R --> V[Recheck authoritative current corpus]
+    V --> O[Bounded source passages]
+```
+
+The strategy scans at most 20 current documents, 8 MB of source snapshots and 512
+chunks by default. It admits 262,144 UTF-8 bytes of prepared query plus corpus text
+even when some vectors are cached. Stored vector snapshots are bounded at 32 MB
+per search. Cache writes may survive a later failed search and can be reused.
+Full source coverage is required; missing vectors are generated rather than silently
+omitted. Oversized chunks, admission failures, model failures and inconsistent
+cache records fail explicitly, with no automatic BM25 fallback. No source text or
+vectors appear in operational events.
+
+Results are ordered by descending cosine, then document ID, version and chunk index.
+All scores are eligible; there is no calibrated relevance cutoff, so unrelated
+queries can still return nearest passages. Review/abstention and representative
+evaluation remain necessary. This is exact in-memory ranking over a persistent
+SQLite vector cache, not ANN indexing, indexed full-text search, hybrid fusion or
+reranking. Search may perform embedding/cache work and cold requests cost more.
+
+Only latest source versions participate. Deleted sources are excluded even if stale
+vector rows remain. A second bounded source read detects changes during inference
+and fails the search instead of returning the old corpus. As with other snapshot
+reads, a deletion immediately after the final check cannot revoke already-returned
+data. Physical cache cleanup uses `delete_document`; automatic deletion propagation,
+retention and stale-writer fencing are not implemented. The source and cache files
+do not share a distributed transaction.
+
+### Configuration
+
+Use the native Ollama origin, not `/v1`. For the verified local Nomic model:
+
+```dotenv
+RETRIEVAL_STRATEGY=vector
+EMBEDDING_BASE_URL=http://localhost:11434
+EMBEDDING_MODEL=nomic-embed-text:v1.5
+EMBEDDING_MODEL_REVISION=0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f
+EMBEDDING_DIMENSIONS=768
+EMBEDDING_DOCUMENT_PREFIX="search_document: "
+EMBEDDING_QUERY_PREFIX="search_query: "
+EMBEDDING_DB_PATH=var/embeddings.sqlite3
+```
+
+Inspect your own installed digest before using it. Model revisions are configured
+provenance, not automatically verified against the server. Keep model tags/artifacts
+stable; rebuild vectors under a new revision/configuration when they change.
+API/agent workers must share the configured single-host embedding file. Restart
+processes after configuration changes. No private `.env.local` is edited automatically.
+Active priced agent runs reject embedding calls pending separate embedding price
+accounting; unpriced runs reserve conservative UTF-8 input bytes as token admission.
+Per-socket HTTP timeouts are clamped to remaining tool time; total DNS/stream timing
+is not a hard transport deadline, and cancellation is checked between blocking steps.

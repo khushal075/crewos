@@ -191,3 +191,41 @@ def test_oversized_prepared_chunk_fails_before_model_call(setup):
     with pytest.raises(RetrievalCapacityExceeded, match="Prepared chunk"):
         ensure(indexer, document)
     assert provider.requests == []
+
+
+def test_batches_at_aggregate_character_limit(setup):
+    source, _, provider, indexer = setup
+    document = save(source, "a" * 80000)
+    document = document.model_copy(
+        update={
+            "chunking": build_character_chunking().chunk(
+                ChunkingRequest(
+                    text=document.document.text, options=ChunkingOptions(chunk_size=4000, overlap=0)
+                )
+            )
+        }
+    )
+    assert len(ensure(indexer, document)) == 20
+    assert [len(request.texts) for request in provider.requests] == [16, 4]
+
+
+def test_successful_embedding_reserves_conservative_input_tokens(setup):
+    source, _, _, indexer = setup
+    document = save(source, "Expired token.")
+    control = ExecutionControl()
+    with execution_scope(control):
+        ensure(indexer, document)
+    assert control.state["reserved_tokens"] == len(document.document.text.encode("utf-8"))
+
+
+def test_embedding_progress_logs_exclude_source_and_vectors(setup, caplog):
+    import logging
+
+    source, _, _, indexer = setup
+    document = save(source, "private_source_marker")
+    with caplog.at_level(logging.INFO):
+        ensure(indexer, document)
+    assert "embedding_batch_started" in caplog.text
+    assert "embedding_batch_succeeded" in caplog.text
+    assert "private_source_marker" not in caplog.text
+    assert "vectors" not in caplog.text

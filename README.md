@@ -1,6 +1,6 @@
 # CrewOS
 
-A Python foundation for an AI agent platform, with a fixed two-step workflow, a bounded tool-using agent loop, and tenant-scoped document management. Single-host durable agent records and document versions are implemented. A bounded keyword-retrieval baseline is available; hybrid retrieval, RAG, approvals, and multi-agent evaluation remain planned.
+A Python foundation for an AI agent platform, with a fixed two-step workflow, a bounded tool-using agent loop, and tenant-scoped document management. Single-host durable agent records and document versions are implemented. BM25 and opt-in bounded vector retrieval support document-grounded answers with evidence review. Hybrid retrieval, reranking, approvals, and multi-agent evaluation remain planned.
 
 ## Contents
 
@@ -2164,3 +2164,28 @@ The two end-to-end synthetic smoke cases passed. The current reviewer matched
 its quality check still exits nonzero. The reports retain earlier failures too;
 workflow implementation and a passing semantic-quality evaluation are different
 milestones. Do not infer production reliability from these small development cases.
+
+## Persistent semantic retrieval (opt-in)
+
+CrewOS can embed a question and current tenant chunks, persist/reuse chunk vectors,
+and return nearest passages through the existing authorized `search_documents` tool.
+`RETRIEVAL_STRATEGY=bm25` remains the default; choose `vector` only after configuring
+an installed embedding model, revision, dimensions and model-specific prefixes.
+No model downloads or private configuration changes occur automatically.
+
+The implementation includes:
+
+- Immutable, tenant/version/configuration-scoped SQLite vector persistence.
+- Bounded batch generation and reuse of exact cached source passages.
+- Query embeddings and replaceable cosine similarity ranking.
+- Both document search/read permission checks before source/provider/cache access.
+- Current-source validation that excludes old/deleted cached passages and detects
+  source changes during inference.
+- Metadata-only progress events, capacity checks and active execution checks.
+
+This is a single-host, small-corpus exact scan, not an ANN vector database or a
+production-scale index. Nearest does not mean sufficient evidence. Physical stale
+cache cleanup and separate embedding-model cost accounting remain limitations;
+priced agent runs reject embedding work rather than apply chat-model rates.
+
+See [vector configuration, flow and limitations](docs/architecture/retrieval.md#opt-in-exact-vector-retrieval).

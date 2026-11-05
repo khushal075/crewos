@@ -1,6 +1,7 @@
 """Bounded read-through embedding cache for authorized current source snapshots."""
 
 import logging
+from time import monotonic
 
 from pydantic import ValidationError
 
@@ -81,7 +82,25 @@ class DocumentEmbeddingIndexer:
                 )
             # Conservative UTF-8 byte reservation, not a tokenizer usage measurement.
             control.reserve(amount, 0)
-        raw = self._provider.embed(request=request)
+        started = monotonic()
+        fields = {
+            "input_count": len(request.texts),
+            "input_bytes": amount,
+            "dimensions": self.space.dimensions,
+        }
+        logger.info({"event": "embedding_batch_started", **fields})
+        try:
+            raw = self._provider.embed(request=request)
+        except Exception as error:
+            logger.error(
+                {
+                    "event": "embedding_batch_failed",
+                    **fields,
+                    "error_type": type(error).__name__,
+                    "duration_ms": round((monotonic() - started) * 1000, 3),
+                }
+            )
+            raise
         if not isinstance(raw, EmbeddingBatch):
             raise RetrievalResultError("Embedding provider returned an invalid result type")
         batch = EmbeddingBatch.model_validate_json(raw.model_dump_json()).validate_for(request)
@@ -92,6 +111,13 @@ class DocumentEmbeddingIndexer:
         ):
             raise RetrievalResultError("Embedding result differs from configured space")
         guard_embedding_work()
+        logger.info(
+            {
+                "event": "embedding_batch_succeeded",
+                **fields,
+                "duration_ms": round((monotonic() - started) * 1000, 3),
+            }
+        )
         return batch
 
     def ensure_document(
@@ -139,8 +165,9 @@ class DocumentEmbeddingIndexer:
             by_index[index] = record
         missing = [passage for passage in passages if passage.chunk.index not in by_index]
         # Plan all batches before the first provider call; never truncate oversized chunks.
-        groups = []
-        current, characters = [], 0
+        groups: list[tuple[RetrievedPassage, ...]] = []
+        current: list[RetrievedPassage] = []
+        characters = 0
         for passage in missing:
             prepared = self.space.document_prefix + passage.chunk.text
             try:
