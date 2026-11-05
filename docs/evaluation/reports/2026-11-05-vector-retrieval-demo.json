@@ -1,0 +1,46 @@
+{
+  "check": "synthetic_vector_retrieval_demo",
+  "model_id": "nomic-embed-text:v1.5",
+  "configured_revision": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+  "space_key": "d1aaa2ed53673d26d276dd1cfde5485995324a0b1f7409d1c4115971f20d1731",
+  "dimensions": 768,
+  "case_count": 3,
+  "vector_expected_at_1_count": 3,
+  "cold_provider_calls": 6,
+  "warm_provider_calls": 3,
+  "elapsed_seconds": 0.571633,
+  "cases": [
+    {
+      "case_id": "credentials",
+      "expected_document_id": "00000000-0000-4000-8000-000000000001",
+      "vector_document_ids": [
+        "00000000-0000-4000-8000-000000000001"
+      ],
+      "bm25_document_ids": [],
+      "vector_expected_at_1": true
+    },
+    {
+      "case_id": "delivery_delay",
+      "expected_document_id": "00000000-0000-4000-8000-000000000002",
+      "vector_document_ids": [
+        "00000000-0000-4000-8000-000000000002"
+      ],
+      "bm25_document_ids": [
+        "00000000-0000-4000-8000-000000000002"
+      ],
+      "vector_expected_at_1": true
+    },
+    {
+      "case_id": "python_role",
+      "expected_document_id": "00000000-0000-4000-8000-000000000003",
+      "vector_document_ids": [
+        "00000000-0000-4000-8000-000000000003"
+      ],
+      "bm25_document_ids": [
+        "00000000-0000-4000-8000-000000000003"
+      ],
+      "vector_expected_at_1": true
+    }
+  ],
+  "scope": "Three synthetic development cases; not representative relevance or throughput evaluation. Uses trusted synthetic context, not request authentication."
+}

@@ -564,3 +564,26 @@ Active priced agent runs reject embedding calls pending separate embedding price
 accounting; unpriced runs reserve conservative UTF-8 input bytes as token admission.
 Per-socket HTTP timeouts are clamped to remaining tool time; total DNS/stream timing
 is not a hard transport deadline, and cancellation is checked between blocking steps.
+
+### Reproducible live development demonstration
+
+```bash
+poetry run python -m crewos.retrieval.vector_demo \
+  --model nomic-embed-text:v1.5 \
+  --revision YOUR_INSTALLED_DIGEST \
+  --dimensions 768
+```
+
+This uses disposable SQLite source/vector files, three synthetic documents and
+three development questions, with explicit Nomic prefixes. It compares actual
+BM25/vector top results and checks warm-cache reuse. It uses trusted synthetic
+context, not request authentication, Redis, Celery or generated answers.
+The runner exits 1 if an expected top result is missed; this tiny hand-authored
+fixture is not independent or representative evaluation.
+
+The recorded local run returned the expected top passage for all three cases.
+BM25 found the expected top passage for two cases and no passage for the credentials
+paraphrase. Cold execution made six provider calls; the repeated three queries made
+three query-only calls, confirming chunk cache reuse. Actual elapsed time was
+0.571633 seconds; this is one observed run, not a benchmark. See
+[the live development report](../evaluation/reports/2026-11-05-vector-retrieval-demo.json).

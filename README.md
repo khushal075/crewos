@@ -2189,3 +2189,14 @@ cache cleanup and separate embedding-model cost accounting remain limitations;
 priced agent runs reject embedding work rather than apply chat-model rates.
 
 See [vector configuration, flow and limitations](docs/architecture/retrieval.md#opt-in-exact-vector-retrieval).
+Run the synthetic demonstration with:
+
+```bash
+poetry run python -m crewos.retrieval.vector_demo \
+  --model nomic-embed-text:v1.5 \
+  --revision YOUR_INSTALLED_DIGEST \
+  --dimensions 768
+```
+
+This demonstration uses temporary databases and synthetic context, and makes real
+embedding calls. Its three cases do not establish broad relevance or throughput.
