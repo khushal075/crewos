@@ -417,3 +417,19 @@ returned two finite nonzero 768-dimensional vectors in 1.153174 seconds. See
 The digest was inspected separately via `/api/tags`; the adapter itself still does
 not verify it. This is one inference smoke check, not a latency benchmark or relevance
 evaluation. It does not exercise tenant authentication, indexing or vector retrieval.
+
+## Vector comparison
+
+`vector_similarity.py` defines `VectorSimilarityInterface` and
+`strategies/cosine_similarity.py` provides `CosineSimilarity`. The strategy measures
+vector direction: identical direction scores 1, perpendicular direction 0 and opposite
+direction -1. Negative scores do not prove semantic contradiction, and no score is
+an answer-correctness probability. Callers must enforce compatible embedding spaces
+and tenant scope before comparing vectors.
+
+Coordinates are validated as finite numeric values, excluding booleans and strings.
+Empty/zero vectors, dimensions above 16,384 and mismatched lengths fail explicitly.
+Normalization scales coordinates before computing vector length to avoid overflow
+or underflow for extreme finite values. Tests cover known angles, magnitude
+invariance, symmetry, extremes and rejection cases. This step does not store vectors
+or change BM25 search; vector persistence and tenant-scoped retrieval remain next.
