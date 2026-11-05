@@ -433,3 +433,33 @@ Normalization scales coordinates before computing vector length to avoid overflo
 or underflow for extreme finite values. Tests cover known angles, magnitude
 invariance, symmetry, extremes and rejection cases. This step does not store vectors
 or change BM25 search; vector persistence and tenant-scoped retrieval remain next.
+
+## Embedding persistence boundary (contracts only)
+
+`embedding_storage_contracts.py` defines three internal backend-owned shapes:
+
+- `EmbeddingSpace`: provider/model/revision, dimensions, preprocessing revision,
+  exact document/query prefixes and normalization configuration. Its SHA-256 key
+  namespaces derived records by canonical configuration. Changing these settings
+  creates a different namespace; equal dimensions alone do not establish compatibility.
+- `StoredChunkEmbedding`: trusted tenant scope, exact versioned `RetrievedPassage`,
+  configuration and finite nonzero vector with matching dimensions. Source text and
+  metadata are duplicated as derived evidence; the source catalog remains authoritative.
+- `ChunkEmbeddingWriteBatch`: 1–128 unique records from one tenant, with at most
+  100,000 source text characters. This is a write unit, not a whole-document size limit.
+
+`chunk_embedding_store.py` defines `ChunkEmbeddingStoreInterface`: atomic batch
+put, exact tenant/document/version/configuration read with explicit admission limits,
+and idempotent tenant-scoped deletion. Identical writes are replay-safe; changed
+content under an immutable key must conflict. Missing reads differ from corruption
+or infrastructure errors. Read adapters must admit count and serialized snapshot
+bytes before loading content and must never silently truncate results.
+
+These contracts do not prove authorization, vector-to-text correspondence, actual
+provider configuration or source availability. The configuration key is not a secret.
+Future authorized orchestration must build records from trusted source snapshots
+and validated provider batches. Retrieval must check current source identity and
+coverage before ranking; incomplete or stale derived data must not be presented as
+a complete current index. Deletion fencing and index publication require lifecycle
+coordination beyond this interface. No database adapter, vector writes, vector search
+or automatic ingestion wiring is implemented in this step.
