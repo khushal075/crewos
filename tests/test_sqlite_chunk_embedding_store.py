@@ -12,6 +12,7 @@ from crewos.retrieval.chunk_embedding_store import (
     EmbeddingStorageCorruption,
     EmbeddingStorageLimitExceeded,
     EmbeddingWriteConflict,
+    EmbeddingWriteFenced,
 )
 from crewos.retrieval.embedding_storage_contracts import ChunkEmbeddingWriteBatch
 from tests.test_embedding_storage_contracts import record, space
@@ -167,3 +168,114 @@ def test_refuses_unrelated_database(tmp_path):
         db.execute("CREATE TABLE unrelated(value TEXT)")
     with pytest.raises(ValueError, match="unrelated"):
         SQLiteChunkEmbeddingStore(path)
+
+
+def test_deletion_fence_survives_restart_and_blocks_replay(store):
+    item = record()
+    put(store, item)
+    store.delete_document(tenant_id=item.tenant_id, document_id=item.passage.document_id)
+    reopened = SQLiteChunkEmbeddingStore(store.path)
+    with pytest.raises(EmbeddingWriteFenced):
+        put(reopened, item)
+    assert read(reopened, item) == ()
+
+
+def test_delete_before_first_write_blocks_late_writer(store):
+    item = record()
+    store.delete_document(tenant_id=item.tenant_id, document_id=item.passage.document_id)
+    with pytest.raises(EmbeddingWriteFenced):
+        put(store, item)
+
+
+def test_deletion_fences_all_versions_and_spaces_but_not_other_tenants(store):
+    item = record()
+    store.delete_document(tenant_id=item.tenant_id, document_id=item.passage.document_id)
+    new_passage = item.passage.model_dump()
+    new_passage["document_version"] = 2
+    for candidate in (
+        record(passage=new_passage),
+        record(passage=item.passage, space=space(model_revision="new")),
+    ):
+        with pytest.raises(EmbeddingWriteFenced):
+            put(store, candidate)
+    other = record(tenant_id="tenant_b", passage=item.passage)
+    put(store, other)
+    assert read(store, other) == (other,)
+
+
+def test_fenced_record_rolls_back_other_writes_in_batch(store):
+    deleted = record()
+    store.delete_document(tenant_id=deleted.tenant_id, document_id=deleted.passage.document_id)
+    new = record()
+    with pytest.raises(EmbeddingWriteFenced):
+        put(store, new, deleted)
+    assert read(store, new) == ()
+
+
+def test_concurrent_delete_and_put_cannot_leave_resurrected_vectors(store):
+    from threading import Barrier
+
+    item = record()
+    other_connection = SQLiteChunkEmbeddingStore(store.path)
+    barrier = Barrier(2)
+
+    def write():
+        barrier.wait(timeout=5)
+        try:
+            put(other_connection, item)
+        except EmbeddingWriteFenced:
+            pass
+
+    def delete():
+        barrier.wait(timeout=5)
+        store.delete_document(tenant_id=item.tenant_id, document_id=item.passage.document_id)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(write), pool.submit(delete)]
+        for future in futures:
+            future.result(timeout=10)
+    assert read(store, item) == ()
+    with pytest.raises(EmbeddingWriteFenced):
+        put(store, item)
+
+
+def test_failed_delete_rolls_back_marker_and_vector_removal(store):
+    item = record()
+    put(store, item)
+    with sqlite3.connect(store.path) as db:
+        db.execute(
+            "CREATE TRIGGER reject_delete BEFORE DELETE ON chunk_embeddings BEGIN SELECT RAISE(ABORT, 'injected failure'); END"
+        )
+    with pytest.raises(sqlite3.IntegrityError):
+        store.delete_document(tenant_id=item.tenant_id, document_id=item.passage.document_id)
+    put(store, item)  # No deletion marker may survive the failed transaction.
+    assert read(store, item) == (item,)
+
+
+def test_schema_one_migration_preserves_existing_vectors_and_enables_fences(tmp_path):
+    path = tmp_path / "legacy.sqlite3"
+    item = record()
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "CREATE TABLE chunk_embeddings (tenant_id TEXT NOT NULL, space_key TEXT NOT NULL, document_id TEXT NOT NULL, version INTEGER NOT NULL, chunk_index INTEGER NOT NULL, snapshot TEXT NOT NULL, PRIMARY KEY(tenant_id, space_key, document_id, version, chunk_index))"
+        )
+        db.execute(
+            "INSERT INTO chunk_embeddings VALUES(?,?,?,?,?,?)",
+            (
+                item.tenant_id,
+                item.space.key,
+                str(item.passage.document_id),
+                item.passage.document_version,
+                item.passage.chunk.index,
+                item.model_dump_json(),
+            ),
+        )
+        db.execute(f"PRAGMA application_id={SQLiteChunkEmbeddingStore.APPLICATION_ID}")
+        db.execute("PRAGMA user_version=1")
+    migrated = SQLiteChunkEmbeddingStore(path)
+    assert read(migrated, item) == (item,)
+    with sqlite3.connect(path) as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+    migrated.delete_document(tenant_id=item.tenant_id, document_id=item.passage.document_id)
+    with pytest.raises(EmbeddingWriteFenced):
+        put(SQLiteChunkEmbeddingStore(path), item)

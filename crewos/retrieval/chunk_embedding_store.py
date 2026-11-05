@@ -10,6 +10,10 @@ from crewos.retrieval.embedding_storage_contracts import (
 )
 
 
+class EmbeddingWriteFenced(RuntimeError):
+    """A durable document-deletion marker prevents new derived-vector writes."""
+
+
 class EmbeddingWriteConflict(RuntimeError):
     """A source/configuration key already has different persisted content."""
 
@@ -36,6 +40,8 @@ class ChunkEmbeddingStoreInterface(Protocol):
         Key: tenant, space.key, document ID, document version and chunk index.
         Identical replays are no-ops. Different content under an existing key
         raises EmbeddingWriteConflict without changing any record in the batch.
+        A deleted document key raises EmbeddingWriteFenced, including identical
+        replay or another revision/configuration. The entire batch must roll back.
         Do not overwrite immutable records or hide partial writes. A document may
         require several batches; this does not publish an entire index atomically.
         """
@@ -64,7 +70,11 @@ class ChunkEmbeddingStoreInterface(Protocol):
     def delete_document(self, *, tenant_id: str, document_id: UUID) -> None:
         """Idempotently delete this tenant's vectors for all versions and spaces.
 
-        Other tenants are untouched. This does not delete source content or fence
-        concurrent stale index writers; lifecycle coordination remains separate.
+        Atomically retain a durable deletion marker and remove vectors. Future
+        writes for this tenant/document are fenced across versions/configurations,
+        including after restart. Missing documents still receive a marker. Other
+        tenants are untouched. This does not delete source content; propagation
+        from the source lifecycle remains separate. Do not use as a cache reset:
+        the same document ID cannot be reindexed after deletion.
         """
         ...

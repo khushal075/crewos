@@ -463,8 +463,9 @@ provider configuration or source availability. The configuration key is not a se
 Future authorized orchestration must build records from trusted source snapshots
 and validated provider batches. Retrieval must check current source identity and
 coverage before ranking; incomplete or stale derived data must not be presented as
-a complete current index. Deletion fencing and index publication require lifecycle
-coordination beyond this interface. No database adapter, vector writes, vector search
+a complete current index. Automatic source-deletion propagation and index publication
+require lifecycle coordination beyond this interface. Explicit cache deletion now
+retains a durable write fence, as described below. No database adapter, vector writes, vector search
 or automatic ingestion wiring is implemented in this step.
 
 ## SQLite embedding persistence
@@ -538,8 +539,8 @@ Only latest source versions participate. Deleted sources are excluded even if st
 vector rows remain. A second bounded source read detects changes during inference
 and fails the search instead of returning the old corpus. As with other snapshot
 reads, a deletion immediately after the final check cannot revoke already-returned
-data. Physical cache cleanup uses `delete_document`; automatic deletion propagation,
-retention and stale-writer fencing are not implemented. The source and cache files
+data. Explicit cache deletion uses `delete_document` and now fences future writes.
+Automatic source-deletion propagation and retention are not yet implemented. The source and cache files
 do not share a distributed transaction.
 
 ### Configuration
@@ -629,3 +630,30 @@ The negative probe recorded actual adapter HTTP calls with an intentionally wron
 expected digest: only GET `/api/tags` was sent, with no embedding POST. The small
 positive demos establish execution, not representative quality or performance.
 API reference: https://docs.ollama.com/api/tags.
+
+## Durable cache-deletion fences
+
+`SQLiteChunkEmbeddingStore` schema version 2 adds a minimal deletion-marker table
+keyed by tenant/document. `delete_document` atomically records the marker and removes
+all live vector rows for that key. Even deletion of a missing document records the
+marker, covering a writer that has not yet inserted its first batch. Repeating the
+operation is safe. `put` checks markers inside its write transaction and raises
+`EmbeddingWriteFenced` before committing a batch containing a deleted key.
+
+This protects against a stale indexer finishing inference after cleanup: whether
+the writer or deleter obtains the SQLite write transaction first, committed deletion
+leaves no vectors and subsequent writes are fenced. A blocked record rolls back
+the entire batch. Markers survive restart and cover every source version and
+embedding space, while other tenants remain independent. Schema-1 databases migrate
+transactionally on open and preserve existing vectors.
+
+A deletion marker is a tombstone: a retained record of deletion without source text
+or vector payload. It retains tenant/document identifiers and must not be removed
+while stale writers can still exist. This operation is permanent for that document
+ID, not a cache reset or re-embedding command. Restore content using a new document
+identity; future cache invalidation needs a distinct operation. SQL deletion does
+not promise secure erasure from WAL files or backups.
+
+This step does not automatically connect source deletion to vector cleanup. Source
+authorization/current-version checks remain necessary. Durable source-event
+propagation and obsolete-version cleanup are the next lifecycle steps.

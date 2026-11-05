@@ -77,7 +77,9 @@ def test_only_missing_chunks_are_embedded_after_partial_progress(setup):
     source, cache, provider, indexer = setup
     document = save(source, "a" * 150)
     records = ensure(indexer, document)
-    cache.delete_document(tenant_id=document.tenant_id, document_id=document.document_id)
+    # Simulate an interrupted first batch in a fresh cache, not a deleted document.
+    cache = SQLiteChunkEmbeddingStore(cache.path.with_name("partial-cache.sqlite3"))
+    indexer = DocumentEmbeddingIndexer(provider=provider, store=cache, space=space())
     cache.put(ChunkEmbeddingWriteBatch(records=(records[0],)))
     provider.requests.clear()
     assert ensure(indexer, document) == records

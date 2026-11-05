@@ -2185,7 +2185,7 @@ The implementation includes:
 
 This is a single-host, small-corpus exact scan, not an ANN vector database or a
 production-scale index. Nearest does not mean sufficient evidence. Physical stale
-cache cleanup and separate embedding-model cost accounting remain limitations;
+cache cleanup propagation and separate embedding-model cost accounting remain limitations;
 priced agent runs reject embedding work rather than apply chat-model rates.
 
 See [vector configuration, flow and limitations](docs/architecture/retrieval.md#opt-in-exact-vector-retrieval).
@@ -2210,3 +2210,13 @@ before persistence. Provider construction still performs no network calls.
 This is server-reported metadata verification, not atomic model attestation;
 keep deployments stable and rebuild vectors after intentional model changes.
 See [verification details and live evidence](docs/architecture/retrieval.md#automatic-server-reported-model-revision-verification).
+
+### Durable vector-cache deletion
+
+Explicit vector-cache deletion now atomically removes rows and retains a tenant/
+document tombstone. It blocks later indexing writes, including after restart and
+across model configurations or source versions. Existing schema-1 vector databases
+migrate to schema 2 on open. This is permanent deletion for that document ID, not
+a cache-reset operation. Automatic propagation from source-document deletion and
+obsolete-version cleanup remain to be implemented. See
+[cache deletion semantics](docs/architecture/retrieval.md#durable-cache-deletion-fences).

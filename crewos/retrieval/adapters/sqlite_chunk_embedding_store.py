@@ -14,6 +14,7 @@ from crewos.retrieval.chunk_embedding_store import (
     EmbeddingStorageCorruption,
     EmbeddingStorageLimitExceeded,
     EmbeddingWriteConflict,
+    EmbeddingWriteFenced,
 )
 from crewos.retrieval.embedding_storage_contracts import (
     ChunkEmbeddingWriteBatch,
@@ -24,7 +25,7 @@ from crewos.retrieval.embedding_storage_contracts import (
 
 class SQLiteChunkEmbeddingStore:
     APPLICATION_ID = 0x43524556
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     def __init__(self, path: str | Path, *, lock_timeout_seconds: float = 2):
         if not str(path).strip() or str(path) == ":memory:":
@@ -49,7 +50,9 @@ class SQLiteChunkEmbeddingStore:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             ).fetchall()
             fresh = app_id == 0 and version == 0 and not tables
-            if not fresh and (app_id != self.APPLICATION_ID or version != self.SCHEMA_VERSION):
+            if not fresh and (
+                app_id != self.APPLICATION_ID or version not in (1, self.SCHEMA_VERSION)
+            ):
                 raise ValueError("Unsupported or unrelated embedding database")
             db.execute(
                 """CREATE TABLE IF NOT EXISTS chunk_embeddings (
@@ -57,6 +60,12 @@ class SQLiteChunkEmbeddingStore:
                 document_id TEXT NOT NULL, version INTEGER NOT NULL CHECK(version>=1),
                 chunk_index INTEGER NOT NULL CHECK(chunk_index>=0), snapshot TEXT NOT NULL,
                 PRIMARY KEY(tenant_id, space_key, document_id, version, chunk_index)
+            )"""
+            )
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS deleted_embedding_documents (
+                tenant_id TEXT NOT NULL, document_id TEXT NOT NULL,
+                PRIMARY KEY(tenant_id, document_id)
             )"""
             )
             db.execute(f"PRAGMA application_id={self.APPLICATION_ID}")
@@ -113,6 +122,12 @@ class SQLiteChunkEmbeddingStore:
         with self._connection() as db:
             db.execute("BEGIN IMMEDIATE")
             for record, snapshot in zip(batch.records, snapshots):
+                deleted = db.execute(
+                    "SELECT 1 FROM deleted_embedding_documents WHERE tenant_id=? AND document_id=?",
+                    (record.tenant_id, str(record.passage.document_id)),
+                ).fetchone()
+                if deleted is not None:
+                    raise EmbeddingWriteFenced("Embedding document is durably deleted")
                 key = (
                     record.tenant_id,
                     record.space.key,
@@ -166,4 +181,9 @@ class SQLiteChunkEmbeddingStore:
     def delete_document(self, *, tenant_id: str, document_id: UUID) -> None:
         key = self._identity(tenant_id, document_id)
         with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                "INSERT OR IGNORE INTO deleted_embedding_documents(tenant_id, document_id) VALUES(?,?)",
+                key,
+            )
             db.execute("DELETE FROM chunk_embeddings WHERE tenant_id=? AND document_id=?", key)
