@@ -50,7 +50,10 @@ def test_cli_uses_explicit_configuration_and_prints_report(monkeypatch, capsys):
         return ExampleProvider()
 
     monkeypatch.setattr(embedding_demo, "OllamaEmbeddingProvider", build)
-    assert embedding_demo.main(["--model", "fixture", "--revision", "r1", "--dimensions", "2"]) == 0
+    assert (
+        embedding_demo.main(["--model", "fixture", "--revision", "a" * 64, "--dimensions", "2"])
+        == 0
+    )
     assert configs[0].model == "fixture"
     assert json.loads(capsys.readouterr().out)["vector_count"] == 2
 
@@ -63,7 +66,10 @@ def test_cli_fails_without_exposing_error_content(monkeypatch, capsys, error):
         raise error
 
     monkeypatch.setattr(embedding_demo, "OllamaEmbeddingProvider", fail)
-    assert embedding_demo.main(["--model", "fixture", "--revision", "r1", "--dimensions", "2"]) == 1
+    assert (
+        embedding_demo.main(["--model", "fixture", "--revision", "a" * 64, "--dimensions", "2"])
+        == 1
+    )
     assert json.loads(capsys.readouterr().out) == {
         "check": "embedding_inference_smoke",
         "status": "failed",

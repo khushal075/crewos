@@ -18,7 +18,7 @@ class FixtureProvider:
             else:
                 vectors.append((0.0, 0.0, 1.0))
         return EmbeddingBatch(
-            model_id="fixture", model_revision="r1", dimensions=3, vectors=vectors
+            model_id="fixture", model_revision="a" * 64, dimensions=3, vectors=vectors
         )
 
 
@@ -26,7 +26,7 @@ def test_demo_reports_observed_results_and_warm_cache_reuse():
     space = EmbeddingSpace(
         provider_id="fixture",
         model_id="fixture",
-        model_revision="r1",
+        model_revision="a" * 64,
         dimensions=3,
         preprocessing_revision="identity_v1",
         document_prefix="search_document: ",
@@ -41,5 +41,7 @@ def test_demo_reports_observed_results_and_warm_cache_reuse():
 
 def test_demo_cli_passes_configured_model_and_returns_result(monkeypatch, capsys):
     monkeypatch.setattr(vector_demo, "OllamaEmbeddingProvider", lambda **kwargs: FixtureProvider())
-    assert vector_demo.main(["--model", "fixture", "--revision", "r1", "--dimensions", "3"]) == 0
+    assert (
+        vector_demo.main(["--model", "fixture", "--revision", "a" * 64, "--dimensions", "3"]) == 0
+    )
     assert json.loads(capsys.readouterr().out)["case_count"] == 3

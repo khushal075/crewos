@@ -1,6 +1,7 @@
 """Native Ollama embedding adapter, independent of chat and retrieval wiring."""
 
 import json
+import logging
 from http.client import HTTPException
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -10,6 +11,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from crewos.application.services.execution_control import get_execution_control
 from crewos.retrieval.embedding_contracts import EmbeddingBatch, ModelLabel, TextEmbeddingRequest
+from crewos.third_party.llm.ollama_model_revision import (
+    ModelRevisionVerificationError,
+    OllamaModelDigest,
+    verify_ollama_model_revision,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class EmbeddingProviderError(RuntimeError):
@@ -21,7 +29,7 @@ class OllamaEmbeddingConfig(BaseModel):
 
     base_url: str
     model: ModelLabel
-    model_revision: ModelLabel
+    model_revision: OllamaModelDigest
     dimensions: int = Field(strict=True, ge=1, le=16384)
     timeout_seconds: float = Field(default=30, gt=0, le=120, allow_inf_nan=False)
     max_response_bytes: int = Field(default=32_000_000, strict=True, ge=1024, le=64_000_000)
@@ -60,19 +68,15 @@ class OllamaEmbeddingProvider:
         # Local/native endpoint: do not forward source text through environment proxies.
         self._opener = build_opener(ProxyHandler({}), _NoRedirects())
 
-    def embed(self, *, request: TextEmbeddingRequest) -> EmbeddingBatch:
-        payload = json.dumps(
-            {
-                "model": self._config.model,
-                "input": list(request.texts),
-                "truncate": False,
-            }
-        ).encode("utf-8")
+    revision_verification = "server_metadata_pre_and_post"
+
+    def _request_json(self, *, path: str, payload: dict | None = None, max_bytes: int) -> object:
+        data = json.dumps(payload).encode("utf-8") if payload is not None else None
         wire_request = Request(
-            self._config.base_url + "/api/embed",
-            data=payload,
+            self._config.base_url + path,
+            data=data,
             headers={"Content-Type": "application/json", "Accept": "application/json"},
-            method="POST",
+            method="POST" if payload is not None else "GET",
         )
         control = get_execution_control()
         timeout = self._config.timeout_seconds
@@ -80,7 +84,7 @@ class OllamaEmbeddingProvider:
             timeout = min(timeout, control.tool_remaining())
         try:
             with self._opener.open(wire_request, timeout=timeout) as response:
-                raw = response.read(self._config.max_response_bytes + 1)
+                raw = response.read(max_bytes + 1)
         except HTTPError as error:
             status = error.code
             error.close()
@@ -91,20 +95,57 @@ class OllamaEmbeddingProvider:
             raise EmbeddingProviderError("Ollama embedding transport failed") from None
         if control is not None:
             control.tool_remaining()
-        if len(raw) > self._config.max_response_bytes:
+        if len(raw) > max_bytes:
             raise EmbeddingProviderError("Ollama embedding response exceeded admission limit")
         try:
-            data = json.loads(raw)
+            return json.loads(raw)
+        except (ValueError, TypeError, RecursionError):
+            raise EmbeddingProviderError("Ollama returned an invalid embedding response") from None
+
+    def _verify_revision(self, *, stage: str) -> str:
+        try:
+            metadata = self._request_json(path="/api/tags", max_bytes=1_000_000)
+            digest = verify_ollama_model_revision(
+                metadata=metadata,
+                model=self._config.model,
+                expected_digest=self._config.model_revision,
+            )
+        except ModelRevisionVerificationError as error:
+            logger.warning({"event": "embedding_revision_rejected", "stage": stage})
+            raise EmbeddingProviderError(
+                f"Ollama model revision verification failed: {error}"
+            ) from None
+        logger.info(
+            {
+                "event": "embedding_revision_checked",
+                "stage": stage,
+                "model_id": self._config.model,
+                "revision": digest,
+            }
+        )
+        return digest
+
+    def embed(self, *, request: TextEmbeddingRequest) -> EmbeddingBatch:
+        # No source text is sent until the expected package is observed.
+        digest = self._verify_revision(stage="before")
+        data = self._request_json(
+            path="/api/embed",
+            max_bytes=self._config.max_response_bytes,
+            payload={"model": self._config.model, "input": list(request.texts), "truncate": False},
+        )
+        try:
             if not isinstance(data, dict) or data.get("model") != self._config.model:
                 raise ValueError("Unexpected provider model")
             result = EmbeddingBatch.model_validate(
                 {
                     "model_id": self._config.model,
-                    "model_revision": self._config.model_revision,
+                    "model_revision": digest,
                     "dimensions": self._config.dimensions,
                     "vectors": data.get("embeddings"),
                 }
-            )
-            return result.validate_for(request)
+            ).validate_for(request)
         except (ValueError, TypeError, RecursionError):
             raise EmbeddingProviderError("Ollama returned an invalid embedding response") from None
+        # Failure here discards vectors before callers can persist or rank them.
+        self._verify_revision(stage="after")
+        return result
