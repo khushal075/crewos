@@ -98,6 +98,7 @@ def run_vector_demo(*, provider: TextEmbeddingInterface, space: EmbeddingSpace) 
         "check": "synthetic_vector_retrieval_demo",
         "model_id": space.model_id,
         "configured_revision": space.model_revision,
+        "revision_verification": getattr(provider, "revision_verification", "not_reported"),
         "space_key": space.key,
         "dimensions": space.dimensions,
         "case_count": len(cases),

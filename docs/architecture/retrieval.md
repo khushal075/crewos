@@ -354,9 +354,10 @@ Configure `EMBEDDING_BASE_URL` as a native HTTP(S) origin, without `/v1`, creden
 query parameters or a path. Set `EMBEDDING_MODEL` to the exact installed model tag,
 `EMBEDDING_MODEL_REVISION` to its inspected digest and `EMBEDDING_DIMENSIONS` to its
 verified output length. No chat model is substituted and no model is downloaded.
-Revision is operator-supplied provenance: this adapter does not verify the installed
-digest or prevent a mutable tag changing. Pin/verify model artifacts before building
-persistent indexes; equal names or dimensions alone do not prove compatibility.
+Revision is operator-configured and now checked against the server's `/api/tags`
+metadata before and after every inference call. A mismatch fails explicitly. This
+does not prevent mutable tags changing; keep model deployments controlled. Equal
+names or dimensions alone do not prove compatibility.
 
 The adapter posts ordered texts to `/api/embed` with `truncate=false`, so an input
 that exceeds the model context should fail rather than silently lose content. It
@@ -399,8 +400,9 @@ poetry run python -m crewos.retrieval.embedding_demo \
 
 The runner prints a JSON summary with counts, dimensions, configured revision and
 actual elapsed time, without printing vectors. It requires finite nonzero norms
-and one vector per input. It does not measure semantic relevance, verify the digest,
-modify `.env.local`, store vectors, change retrieval or authenticate a real tenant.
+and one vector per input. The native adapter now checks the server-reported digest
+before and after inference. The runner does not measure semantic relevance, modify
+`.env.local`, store vectors, change retrieval or authenticate a real tenant.
 Failures return exit code 1. Tests use controlled providers and do not download models.
 
 On 2026-11-05 the installation attempt failed because the Ollama registry connection
@@ -415,8 +417,8 @@ with digest `0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f`,
 embedding capability and 768 output dimensions. The real adapter smoke command
 returned two finite nonzero 768-dimensional vectors in 1.153174 seconds. See
 [the actual JSON report](../evaluation/reports/2026-11-05-embedding-smoke.json).
-The digest was inspected separately via `/api/tags`; the adapter itself still does
-not verify it. This is one inference smoke check, not a latency benchmark or relevance
+In that historical run the digest was inspected separately via `/api/tags`; automatic
+adapter verification was added later, as described below. This is one inference smoke check, not a latency benchmark or relevance
 evaluation. It does not exercise tenant authentication, indexing or vector retrieval.
 
 ## Vector comparison
@@ -555,9 +557,10 @@ EMBEDDING_QUERY_PREFIX="search_query: "
 EMBEDDING_DB_PATH=var/embeddings.sqlite3
 ```
 
-Inspect your own installed digest before using it. Model revisions are configured
-provenance, not automatically verified against the server. Keep model tags/artifacts
-stable; rebuild vectors under a new revision/configuration when they change.
+Inspect your own installed digest before configuring it. The native adapter requires
+a full 64-character lowercase digest and verifies server metadata before and after
+every embedding call. Keep model tags/artifacts stable; rebuild vectors under a new
+revision/configuration when they change.
 API/agent workers must share the configured single-host embedding file. Restart
 processes after configuration changes. No private `.env.local` is edited automatically.
 Active priced agent runs reject embedding calls pending separate embedding price
@@ -587,3 +590,42 @@ paraphrase. Cold execution made six provider calls; the repeated three queries m
 three query-only calls, confirming chunk cache reuse. Actual elapsed time was
 0.571633 seconds; this is one observed run, not a benchmark. See
 [the live development report](../evaluation/reports/2026-11-05-vector-retrieval-demo.json).
+
+## Automatic server-reported model revision verification
+
+`ollama_model_revision.py` validates bounded model-list metadata and requires one
+exact installed tag with the expected full lowercase SHA-256 package digest.
+Missing, duplicate, malformed or mismatched metadata fails closed. The adapter
+uses the same bounded, no-redirect HTTP client for this sequence:
+
+```text
+GET /api/tags → verify configured digest
+POST /api/embed → validate vectors
+GET /api/tags → verify digest again → return batch
+```
+
+Initial verification failure prevents sending text to the embedding endpoint.
+Failure after inference discards the vectors before the indexer can persist them.
+No automatic retry, tag alias guessing, revision update or cache overwrite occurs.
+Metadata responses are limited to 1 MB; inference retains its configured response
+limit. Each HTTP request checks the active deadline and recomputes its socket
+timeout. Construction remains network-free, preserving authorization before IO.
+Successful inference makes two additional metadata requests.
+
+This verifies what the configured server reports, not cryptographic attestation or
+an atomic link between a digest and inference. A tag that changes and changes back
+between checks can escape detection. Load-balanced servers must serve consistent
+model artifacts. Immutable deployment/controlled updates remain necessary for
+stronger guarantees. Matching digests do not prove relevance or authorize text
+access. Existing cache rows are not retroactively verified; rebuild any vectors
+whose original model identity is uncertain. Generic embedding contracts and the
+SQLite schema remain unchanged.
+
+Historical reports are preserved. New local checks on 2026-11-05 are recorded in
+[the verified embedding smoke report](../evaluation/reports/2026-11-05-verified-embedding-smoke.json),
+[the verified vector demo](../evaluation/reports/2026-11-05-verified-vector-demo.json), and
+[the intentional mismatch probe](../evaluation/reports/2026-11-05-revision-mismatch.json).
+The negative probe recorded actual adapter HTTP calls with an intentionally wrong
+expected digest: only GET `/api/tags` was sent, with no embedding POST. The small
+positive demos establish execution, not representative quality or performance.
+API reference: https://docs.ollama.com/api/tags.

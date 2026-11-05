@@ -1,0 +1,14 @@
+{
+  "check": "live_revision_mismatch",
+  "rejected": true,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "tags"
+    }
+  ],
+  "embedding_post_sent": false,
+  "model_id": "nomic-embed-text:v1.5",
+  "configured_model_revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "scope": "Intentional expected-digest mismatch against local Ollama; actual adapter request methods recorded; no model or private configuration changes."
+}

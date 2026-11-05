@@ -31,7 +31,9 @@ def run_embedding_smoke(provider: TextEmbeddingInterface) -> dict:
         "check": "embedding_inference_smoke",
         "model_id": batch.model_id,
         "configured_model_revision": batch.model_revision,
-        "revision_verified_by_adapter": False,
+        "revision_verified_by_adapter": getattr(provider, "revision_verification", None)
+        == "server_metadata_pre_and_post",
+        "revision_verification": getattr(provider, "revision_verification", "not_reported"),
         "dimensions": batch.dimensions,
         "input_count": len(request.texts),
         "vector_count": len(batch.vectors),
@@ -47,7 +49,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base-url", default="http://localhost:11434")
     parser.add_argument("--model", required=True)
     parser.add_argument(
-        "--revision", required=True, help="Installed digest inspected via /api/tags"
+        "--revision",
+        required=True,
+        help="Expected full lowercase digest; checked against /api/tags before and after inference",
     )
     parser.add_argument("--dimensions", type=int, required=True)
     parser.add_argument("--timeout", type=float, default=60)

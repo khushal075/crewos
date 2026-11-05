@@ -2200,3 +2200,13 @@ poetry run python -m crewos.retrieval.vector_demo \
 
 This demonstration uses temporary databases and synthetic context, and makes real
 embedding calls. Its three cases do not establish broad relevance or throughput.
+
+### Embedding model revision checks
+
+The Ollama adapter now requires the expected full lowercase model digest and
+checks `/api/tags` before and after each embedding request. Initial mismatch
+prevents sending source text to `/api/embed`; a later mismatch discards results
+before persistence. Provider construction still performs no network calls.
+This is server-reported metadata verification, not atomic model attestation;
+keep deployments stable and rebuild vectors after intentional model changes.
+See [verification details and live evidence](docs/architecture/retrieval.md#automatic-server-reported-model-revision-verification).
