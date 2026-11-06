@@ -186,7 +186,7 @@ def test_existing_database_migrates_preserving_sources_and_jobs(store, old_versi
     assert migrated.get(tenant_id=first.tenant_id, document_id=first.document_id) == first
     assert events(migrated) == []
     with sqlite3.connect(store.path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 5
         assert db.execute("SELECT COUNT(*) FROM document_jobs").fetchone()[0] == (
             1 if old_version == 2 else 0
         )

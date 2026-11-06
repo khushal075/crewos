@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from crewos.ingestion.contracts import StoredDocumentVersion
 from crewos.ingestion.adapters.sqlite_document_jobs import SQLiteDocumentJobs
+from crewos.ingestion.adapters.sqlite_document_search_index import SQLiteDocumentSearchIndex
 from crewos.ingestion.adapters.sqlite_document_cleanup_outbox import SQLiteDocumentCleanupOutbox
 from crewos.ingestion.document_corpus_reader import DocumentCorpusLimitExceeded
 from crewos.ingestion.document_store import (
@@ -21,9 +22,11 @@ from crewos.ingestion.document_store import (
 )
 
 
-class SQLiteDocumentStore(SQLiteDocumentJobs, SQLiteDocumentCleanupOutbox):
+class SQLiteDocumentStore(
+    SQLiteDocumentJobs, SQLiteDocumentCleanupOutbox, SQLiteDocumentSearchIndex
+):
     APPLICATION_ID = 0x43524453
-    SCHEMA_VERSION = 4
+    SCHEMA_VERSION = 5
 
     def __init__(
         self,
@@ -69,7 +72,7 @@ class SQLiteDocumentStore(SQLiteDocumentJobs, SQLiteDocumentCleanupOutbox):
             fresh = application_id == 0 and version == 0 and not tables
             if not fresh and (
                 application_id != self.APPLICATION_ID
-                or version not in (1, 2, 3, self.SCHEMA_VERSION)
+                or version not in (1, 2, 3, 4, self.SCHEMA_VERSION)
             ):
                 raise ValueError("Unsupported or unrelated document database")
             db.execute(
@@ -85,6 +88,9 @@ class SQLiteDocumentStore(SQLiteDocumentJobs, SQLiteDocumentCleanupOutbox):
             self._initialize_cleanup_outbox(db)
             if not fresh and version < self.SCHEMA_VERSION:
                 self._backfill_version_cleanup(db)
+            self._initialize_search_index(db)
+            if not fresh and version < 5:
+                self._backfill_search_index(db)
             db.execute(f"PRAGMA application_id={self.APPLICATION_ID}")
             db.execute(f"PRAGMA user_version={self.SCHEMA_VERSION}")
         with self._connection() as db:
@@ -159,6 +165,7 @@ class SQLiteDocumentStore(SQLiteDocumentJobs, SQLiteDocumentCleanupOutbox):
             "INSERT INTO document_versions(tenant_id,document_id,version,snapshot) VALUES(?,?,?,?)",
             (*identity, record.version, record.model_dump_json()),
         )
+        self._index_document(db, record)
         if record.version > 1:
             self._record_document_version(
                 db,
@@ -206,6 +213,7 @@ class SQLiteDocumentStore(SQLiteDocumentJobs, SQLiteDocumentCleanupOutbox):
                 token=NULL,lease_until=NULL WHERE tenant=? AND document_id=?""",
                 identity,
             )
+            self._remove_search_document(db, tenant_id, document_id)
             self._record_document_deleted(db, tenant_id=tenant_id, document_id=document_id)
 
     def read_latest_documents(

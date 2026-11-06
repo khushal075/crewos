@@ -131,3 +131,9 @@ def build_hybrid_retrieval(
         ),
         executor=executor,
     )
+
+
+def build_indexed_retrieval(*, index, executor, **limits) -> RetrievalFacade:
+    from crewos.retrieval.strategies.indexed_bm25 import IndexedBM25Retriever
+
+    return RetrievalFacade(retriever=IndexedBM25Retriever(index, **limits), executor=executor)
