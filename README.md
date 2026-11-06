@@ -2326,3 +2326,31 @@ Monetary cost/token usage remain explicitly unmeasured. This is a small developm
 smoke check, not a representative relevance or deployment performance benchmark.
 The command supplies model settings explicitly; normal application embedding
 configuration is a separate requirement.
+
+### Ranked-result fusion: first concrete strategy
+
+`ReciprocalRankFusion` now implements the existing ranked-result fusion interface.
+It merges ordered child results using passage ranks, preserves exact evidence,
+rejects conflicting copies of a passage and applies deterministic tie-breaking.
+The opt-in hybrid builder now composes BM25 and vector retrieval into one
+search operation, as described below. See the
+[RRF mechanism and limitations](docs/architecture/retrieval.md#reciprocal-rank-fusion-strategy).
+
+### Opt-in hybrid retrieval composition
+
+`build_hybrid_retrieval` combines BM25 and vector search behind the existing
+`document.search` and `document.read` authorization gate. Both children receive
+the same bounded, immutable tenant snapshot. Each returns up to `candidate_k`
+(default 20), RRF combines those lists, and the final result respects `top_k`.
+The builder supplies BM25 first, which wins exact fusion ties by first appearance.
+
+A final source read rejects results if a document was updated, added or deleted
+during retrieval. Child/fusion results must preserve exact snapshot evidence;
+fusion cannot introduce a passage absent from both child lists. Provider/storage
+errors propagate, and no partial keyword-only fallback is enabled. Empty tenants
+make no embedding calls. Counts and strategy metadata are logged without text.
+
+This builder is opt-in Python composition. Existing API/agent strategy selection
+and defaults are unchanged; runtime configuration/tool wiring and live hybrid
+relevance evaluation are subsequent increments. See
+[hybrid scope and limits](docs/architecture/retrieval.md#hybrid-retriever-composition).

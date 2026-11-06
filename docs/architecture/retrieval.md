@@ -868,3 +868,78 @@ and deletion fences. Temporary paths isolate it from application tenant data.
 Successful checks and measured latency/workload are available in the linked report;
 monetary cost is not inferred from byte counts. Representative relevance and load
 evaluation remain separate work.
+
+## Reciprocal Rank Fusion strategy
+
+`strategies/reciprocal_rank_fusion.py` implements the existing
+`RankedResultFusionInterface` using equal-weight Reciprocal Rank Fusion (RRF).
+For a passage at one-based rank `r` in a child list, add `1 / (rank_constant + r)`.
+A missing passage contributes zero. The default constant is 60; configuration
+accepts integers 1–10000. This constant differs from `top_k`, which limits output.
+See the [original RRF paper](https://cormack.uwaterloo.ca/cormacksigir09-rrf.pdf).
+
+For keyword results `[A, B]` and vector results `[B, C]`, B receives
+`1/62 + 1/61`, A receives `1/61`, and C receives `1/62`. The fused order is
+`[B, A, C]`. These scores express ranking agreement, not relevance probabilities.
+The method ignores how large the original score gaps were and cannot recover
+passages that neither child retrieved.
+
+Passage identity is `(document_id, document_version, chunk.index)`. Identical hits
+across lists merge; conflicting text or metadata for one identity fails the entire
+operation, including conflicts outside the eventual output limit. Different
+versions remain different identities; the composing retriever must ensure current
+source scope. Source text and metadata are preserved exactly.
+
+Scores use exact rational arithmetic, keeping mathematically equal sums tied
+regardless of accumulation order. Ties preserve first appearance in stable child
+list/rank order. Child order is therefore a deliberate tie-breaking choice.
+Repeated strategy names are supported and do not deduplicate independently supplied
+rankings; accidentally supplying one retriever twice would give it extra influence.
+The request already bounds admission to 8 child lists of at most 20 passages each.
+Logs contain counts and configuration, without query text or passage content.
+
+The opt-in hybrid retriever below now invokes BM25 and vector search and supplies
+their rankings to this strategy. No search default or agent tool configuration is
+changed. Fusion itself performs no model calls or permission checks and cannot
+prove that children used the same tenant or query.
+
+## Hybrid retriever composition
+
+`build_hybrid_retrieval` exposes a `RetrievalFacade` with the same dual permission
+checks as other search strategies. It composes `HybridRetriever`, a request-local
+snapshot reader, BM25, the vector retriever/indexer and `ReciprocalRankFusion`.
+
+1. Authorize search and reading before source/cache/model activity.
+2. Read and validate one bounded current tenant snapshot.
+3. Create both child retrievers over that immutable view; invoke them sequentially
+   with the same query and tenant. Validate each result against exact source evidence.
+4. Fuse both rankings, validate output identity/text, limit and membership in child
+   results, and enforce the final output character bound.
+5. Reread authoritative source state and fail if the corpus changed. Return
+   `hybrid_fusion_v1` only after this check succeeds.
+
+The view is request-local, so a shared retriever does not retain another request's
+source snapshots. Snapshot reads enforce child tenant scope and admission limits.
+Both children search identical source versions even while the embedding model runs.
+The final comparison detects updates, additions and deletion observed by that read;
+it does not provide a transaction covering response delivery or revoke data already
+returned. Failed searches may have populated derived cache entries; the existing
+cleanup fences and source checks still govern those entries.
+
+`candidate_k` (1–20, default 20) controls each child's list depth; `top_k` controls
+final output and must not exceed candidate depth. This leaves room for a passage
+below one child's first result to receive support from the other. Current contracts
+cap each child at 20; larger pools need a separate contract/admission change. Default
+limits remain 20 source documents, 512 chunks, 8 MB serialized source and 100,000
+output characters, with existing vector byte/input admission limits. This is a
+bounded exact scan, not an approximate-nearest-neighbor or BM25 index.
+
+BM25 is first and vector second, making BM25 appearance the deterministic tie
+preference under RRF. Lists have equal weight. Errors from either child fail the
+search; there is no implicit partial-result fallback. Empty tenant corpora return
+empty without invoking embedding inference. No extra user permissions are granted.
+
+The public builder enables explicit composition without changing API/agent strategy
+selection. Integration tests use real temporary SQLite stores with controlled
+vectors to test boundaries and races, not to establish semantic relevance. Live
+hybrid relevance evaluation and agent configuration wiring are still separate work.
