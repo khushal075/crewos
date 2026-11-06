@@ -1,0 +1,53 @@
+{
+  "check": "configured_hybrid_agent_tool_smoke",
+  "passed": true,
+  "recorded_at_utc": "2026-11-06T14:53:17.137801+00:00",
+  "model_id": "nomic-embed-text:v1.5",
+  "revision": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+  "dimensions": 768,
+  "revision_verification": "server_metadata_pre_and_post",
+  "case_count": 3,
+  "cases": [
+    {
+      "case_id": "credentials",
+      "hybrid_strategy": "hybrid_fusion_v1",
+      "hybrid_expected_at_1": true,
+      "bm25_expected_at_1": false,
+      "vector_expected_at_1": true,
+      "hybrid_elapsed_ms": 106.283
+    },
+    {
+      "case_id": "delivery_delay",
+      "hybrid_strategy": "hybrid_fusion_v1",
+      "hybrid_expected_at_1": true,
+      "bm25_expected_at_1": true,
+      "vector_expected_at_1": true,
+      "hybrid_elapsed_ms": 23.526
+    },
+    {
+      "case_id": "python_role",
+      "hybrid_strategy": "hybrid_fusion_v1",
+      "hybrid_expected_at_1": true,
+      "bm25_expected_at_1": true,
+      "vector_expected_at_1": true,
+      "hybrid_elapsed_ms": 23.52
+    }
+  ],
+  "expected_at_1_counts": {
+    "hybrid": 3,
+    "bm25": 2,
+    "vector": 3
+  },
+  "warm_hybrid_elapsed_ms": [
+    24.059,
+    25.067,
+    22.505
+  ],
+  "permission_denial": true,
+  "other_tenant_empty": true,
+  "cost": {
+    "monetary_cost": null,
+    "reason": "Local compute costs and provider token usage are not measured."
+  },
+  "scope": "Three synthetic queries over three temporary one-chunk documents. Configured search_documents tool dispatch with trusted contexts; no model-decided agent loop, API authentication, representative benchmark or load test. Baseline vector searches share the cache; timings are not an algorithm speed comparison. Process environment overrides only; existing tenant data/configuration unchanged."
+}

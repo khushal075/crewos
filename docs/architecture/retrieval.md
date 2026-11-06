@@ -939,7 +939,27 @@ preference under RRF. Lists have equal weight. Errors from either child fail the
 search; there is no implicit partial-result fallback. Empty tenant corpora return
 empty without invoking embedding inference. No extra user permissions are granted.
 
-The public builder enables explicit composition without changing API/agent strategy
-selection. Integration tests use real temporary SQLite stores with controlled
-vectors to test boundaries and races, not to establish semantic relevance. Live
-hybrid relevance evaluation and agent configuration wiring are still separate work.
+The public builder enables explicit composition. Agent strategy selection now
+accepts opt-in hybrid mode as described below. Integration tests use real temporary
+SQLite stores with controlled vectors to test boundaries and races. A live tool
+smoke check complements them; representative relevance evaluation remains separate.
+
+## Configured hybrid agent retrieval
+
+`RETRIEVAL_STRATEGY` accepts `bm25` (default), `vector` and `hybrid`.
+`ConfiguredHybridRetriever` runs inside the existing authorization facade, builds
+embedding configuration/provider/store lazily and delegates to the same
+`build_hybrid_retriever` composition used by `build_hybrid_retrieval`. The raw builder
+is also exported for this purpose; callers using it directly must enforce policy.
+No duplicate permission context is minted by the configured adapter.
+
+`HYBRID_CANDIDATE_K` is 1–20 (default 20) and `HYBRID_RRF_RANK_CONSTANT` is 1–10000
+(default 60). These are server settings, not model-controlled arguments. The agent
+output bound remains 8,000 passage-text characters and the existing search-tool
+observation limit remains 32,000 serialized bytes. Vector input/cache limits still
+apply. Incomplete model configuration fails after authorization without fallback.
+
+See [live verification and its limits](../evaluation/hybrid-agent-tool-verification.md).
+The registered search tool selects hybrid when configured, but the smoke check
+calls the dispatcher directly with trusted synthetic context; a chat-model tool
+selection loop and request authentication are outside this evidence.

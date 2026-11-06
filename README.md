@@ -2350,7 +2350,27 @@ fusion cannot introduce a passage absent from both child lists. Provider/storage
 errors propagate, and no partial keyword-only fallback is enabled. Empty tenants
 make no embedding calls. Counts and strategy metadata are logged without text.
 
-This builder is opt-in Python composition. Existing API/agent strategy selection
-and defaults are unchanged; runtime configuration/tool wiring and live hybrid
-relevance evaluation are subsequent increments. See
+Agent configuration now accepts `RETRIEVAL_STRATEGY=hybrid`; BM25 remains the
+default. The live tool smoke check is documented below; representative hybrid
+relevance evaluation remains future work. See
 [hybrid scope and limits](docs/architecture/retrieval.md#hybrid-retriever-composition).
+
+### Hybrid search through the agent tool
+
+Set `RETRIEVAL_STRATEGY=hybrid` in the API/worker/CLI process environment to use
+hybrid retrieval for the existing `search_documents` registration. Also configure
+the embedding model, verified revision, dimensions and appropriate task prefixes.
+`HYBRID_CANDIDATE_K=20` and `HYBRID_RRF_RANK_CONSTANT=60` control child depth and RRF.
+Requests above configured candidate depth fail explicitly. Restart affected processes
+to load settings; no extra tool or permissions are introduced.
+
+The configured adapter defers model configuration/provider construction and opening
+the vector database until both search/read permissions pass. It shares the same
+raw hybrid composition as the public facade builder. Errors propagate without
+silently changing the retrieval strategy. The normal default remains BM25.
+
+A [reproducible live tool verification](docs/evaluation/hybrid-agent-tool-verification.md)
+uses the pinned Nomic model and temporary source/cache databases. It records 3/3
+expected first passages for hybrid and vector, versus 2/3 for BM25 on three synthetic
+queries. This establishes wiring, not general superiority. It does not execute a
+chat-model decision loop, authenticate an API request, or modify `.env.local`.
