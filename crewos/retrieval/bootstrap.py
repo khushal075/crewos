@@ -65,3 +65,61 @@ def build_vector_retrieval(
         ),
         executor=executor,
     )
+
+
+def build_hybrid_retrieval(
+    *,
+    reader,
+    executor,
+    provider,
+    store,
+    space,
+    candidate_k: int = 20,
+    rank_constant: int = 60,
+    max_documents: int = 20,
+    max_snapshot_bytes: int = 8_000_000,
+    max_chunks: int = 512,
+    max_output_chars: int = 100_000,
+    max_embedding_bytes: int = 32_000_000,
+    max_embedding_input_bytes: int = 262144,
+) -> RetrievalFacade:
+    """BM25 then vector on a shared snapshot; RRF ties prefer BM25 appearance."""
+    from crewos.retrieval.document_embedding_indexer import DocumentEmbeddingIndexer
+    from crewos.retrieval.strategies.bm25 import BM25Retriever
+    from crewos.retrieval.strategies.hybrid import HybridRetriever
+    from crewos.retrieval.strategies.reciprocal_rank_fusion import ReciprocalRankFusion
+    from crewos.retrieval.strategies.vector import VectorRetriever
+
+    indexer = DocumentEmbeddingIndexer(provider=provider, store=store, space=space)
+
+    def children(snapshot):
+        common = dict(
+            max_documents=max_documents,
+            max_snapshot_bytes=max_snapshot_bytes,
+            max_output_chars=max_output_chars,
+        )
+        return (
+            BM25Retriever(snapshot, **common),
+            VectorRetriever(
+                snapshot,
+                indexer=indexer,
+                max_chunks=max_chunks,
+                max_embedding_bytes=max_embedding_bytes,
+                max_embedding_input_bytes=max_embedding_input_bytes,
+                **common,
+            ),
+        )
+
+    return RetrievalFacade(
+        retriever=HybridRetriever(
+            reader=reader,
+            children_factory=children,
+            fusion=ReciprocalRankFusion(rank_constant=rank_constant),
+            candidate_k=candidate_k,
+            max_documents=max_documents,
+            max_snapshot_bytes=max_snapshot_bytes,
+            max_chunks=max_chunks,
+            max_output_chars=max_output_chars,
+        ),
+        executor=executor,
+    )
