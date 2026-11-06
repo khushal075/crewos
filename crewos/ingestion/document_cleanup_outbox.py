@@ -1,4 +1,4 @@
-"""Durable vector-cleanup delivery boundary; implementation follows separately."""
+"""Durable vector-cleanup delivery boundary; adapters must enforce tenant and lease ownership."""
 
 from typing import Protocol
 from uuid import UUID

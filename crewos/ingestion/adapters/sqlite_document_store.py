@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from crewos.ingestion.contracts import StoredDocumentVersion
 from crewos.ingestion.adapters.sqlite_document_jobs import SQLiteDocumentJobs
+from crewos.ingestion.adapters.sqlite_document_cleanup_outbox import SQLiteDocumentCleanupOutbox
 from crewos.ingestion.document_corpus_reader import DocumentCorpusLimitExceeded
 from crewos.ingestion.document_store import (
     DocumentNotFound,
@@ -20,9 +21,9 @@ from crewos.ingestion.document_store import (
 )
 
 
-class SQLiteDocumentStore(SQLiteDocumentJobs):
+class SQLiteDocumentStore(SQLiteDocumentJobs, SQLiteDocumentCleanupOutbox):
     APPLICATION_ID = 0x43524453
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 4
 
     def __init__(
         self,
@@ -67,7 +68,8 @@ class SQLiteDocumentStore(SQLiteDocumentJobs):
             ).fetchall()
             fresh = application_id == 0 and version == 0 and not tables
             if not fresh and (
-                application_id != self.APPLICATION_ID or version not in (1, self.SCHEMA_VERSION)
+                application_id != self.APPLICATION_ID
+                or version not in (1, 2, 3, self.SCHEMA_VERSION)
             ):
                 raise ValueError("Unsupported or unrelated document database")
             db.execute(
@@ -80,6 +82,9 @@ class SQLiteDocumentStore(SQLiteDocumentJobs):
                 )"""
             )
             self._initialize_jobs(db)
+            self._initialize_cleanup_outbox(db)
+            if not fresh and version < self.SCHEMA_VERSION:
+                self._backfill_version_cleanup(db)
             db.execute(f"PRAGMA application_id={self.APPLICATION_ID}")
             db.execute(f"PRAGMA user_version={self.SCHEMA_VERSION}")
         with self._connection() as db:
@@ -135,6 +140,14 @@ class SQLiteDocumentStore(SQLiteDocumentJobs):
 
     def _append(self, db, record):
         identity = self._identity(record.tenant_id, record.document_id)
+        if (
+            db.execute(
+                "SELECT 1 FROM document_cleanup_outbox WHERE tenant_id=? AND document_id=? AND event_type='document.deleted'",
+                identity,
+            ).fetchone()
+            is not None
+        ):
+            raise DocumentVersionConflict("Deleted document identity cannot be reused")
         latest = db.execute(
             "SELECT MAX(version) FROM document_versions WHERE tenant_id=? AND document_id=?",
             identity,
@@ -146,6 +159,13 @@ class SQLiteDocumentStore(SQLiteDocumentJobs):
             "INSERT INTO document_versions(tenant_id,document_id,version,snapshot) VALUES(?,?,?,?)",
             (*identity, record.version, record.model_dump_json()),
         )
+        if record.version > 1:
+            self._record_document_version(
+                db,
+                tenant_id=record.tenant_id,
+                document_id=record.document_id,
+                version=record.version,
+            )
 
     def get(
         self, *, tenant_id: str, document_id: UUID, version: int | None = None
@@ -186,6 +206,7 @@ class SQLiteDocumentStore(SQLiteDocumentJobs):
                 token=NULL,lease_until=NULL WHERE tenant=? AND document_id=?""",
                 identity,
             )
+            self._record_document_deleted(db, tenant_id=tenant_id, document_id=document_id)
 
     def read_latest_documents(
         self, *, tenant_id: str, max_documents: int, max_snapshot_bytes: int

@@ -33,6 +33,8 @@ class DocumentStoreInterface(Protocol):
         For a (tenant_id, document_id), the first version is 1 and subsequent
         versions must be latest + 1. Concurrent or duplicate writes raise
         DocumentVersionConflict; existing versions must never be overwritten.
+        A deleted tenant/document identity cannot be reused: delayed cleanup must
+        not affect replacement content. Restored content needs a new document ID.
         Validate records again at the storage boundary before writing.
         """
         ...
@@ -50,8 +52,10 @@ class DocumentStoreInterface(Protocol):
     def delete(self, *, tenant_id: str, document_id: UUID) -> None:
         """Atomically delete all stored versions/chunks in this tenant scope.
 
-        Missing and other-tenant records raise DocumentNotFound. This operation
-        does not imply deletion from future external search indexes or backups;
-        their propagation and retention require separate lifecycle handling.
+        Atomically save a backend deletion event in the source cleanup outbox.
+        Missing and other-tenant records raise DocumentNotFound without an event.
+        A successful return means source removal and pending cleanup are committed,
+        not that downstream cleanup has completed. External index and backup
+        propagation/retention require separate lifecycle handling.
         """
         ...

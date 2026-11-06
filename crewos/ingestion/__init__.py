@@ -26,6 +26,13 @@ from crewos.ingestion.service import DocumentPreparationService
 from crewos.ingestion.document_ingestion_facade import DocumentIngestionFacade
 
 __all__ = [
+    "CleanupFailureCode",
+    "DocumentCleanupClaim",
+    "DocumentDeletedEvent",
+    "DocumentVersionCreatedEvent",
+    "CleanupLeaseLost",
+    "CleanupOutboxCorruption",
+    "DocumentCleanupOutboxInterface",
     "DocumentCorpusReaderInterface",
     "DocumentCorpusLimitExceeded",
     "DocumentReadRequest",
@@ -71,4 +78,16 @@ from crewos.ingestion.document_job_processor import process_document_job
 from crewos.ingestion.document_corpus_reader import (
     DocumentCorpusReaderInterface,
     DocumentCorpusLimitExceeded,
+)
+
+from crewos.ingestion.document_cleanup_contracts import (
+    CleanupFailureCode,
+    DocumentCleanupClaim,
+    DocumentDeletedEvent,
+    DocumentVersionCreatedEvent,
+)
+from crewos.ingestion.document_cleanup_outbox import (
+    CleanupLeaseLost,
+    CleanupOutboxCorruption,
+    DocumentCleanupOutboxInterface,
 )
