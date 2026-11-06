@@ -11,7 +11,7 @@ from crewos.retrieval.embedding_storage_contracts import (
 
 
 class EmbeddingWriteFenced(RuntimeError):
-    """A durable document-deletion marker prevents new derived-vector writes."""
+    """A durable deletion marker or version floor prevents a stale vector write."""
 
 
 class EmbeddingWriteConflict(RuntimeError):
@@ -41,7 +41,8 @@ class ChunkEmbeddingStoreInterface(Protocol):
         Identical replays are no-ops. Different content under an existing key
         raises EmbeddingWriteConflict without changing any record in the batch.
         A deleted document key raises EmbeddingWriteFenced, including identical
-        replay or another revision/configuration. The entire batch must roll back.
+        replay or another revision/configuration. Versions below a retained floor
+        also raise EmbeddingWriteFenced. The entire batch must roll back.
         Do not overwrite immutable records or hide partial writes. A document may
         require several batches; this does not publish an entire index atomically.
         """
@@ -64,6 +65,19 @@ class ChunkEmbeddingStoreInterface(Protocol):
         snapshot. Missing or other-tenant matches return (). Corruption and
         infrastructure failures must raise. Incomplete cached documents are
         possible; callers must check coverage against the authoritative source.
+        """
+        ...
+
+    def retain_from_version(self, *, tenant_id: str, document_id: UUID, min_version: int) -> None:
+        """Atomically advance a durable version floor and remove older vectors.
+
+        Caller supplies a version established from authoritative source state,
+        never an agent claim. Validate a positive SQLite integer. The floor can
+        only increase; repeated/out-of-order requests cannot lower it. Remove
+        lower versions across all embedding spaces and fence their future writes.
+        Preserve current/newer vectors and other tenants/documents. A permanently
+        deleted document remains deleted. This does not generate current vectors,
+        remove source history or automatically subscribe to source updates.
         """
         ...
 

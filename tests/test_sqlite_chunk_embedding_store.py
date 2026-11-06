@@ -275,7 +275,7 @@ def test_schema_one_migration_preserves_existing_vectors_and_enables_fences(tmp_
     migrated = SQLiteChunkEmbeddingStore(path)
     assert read(migrated, item) == (item,)
     with sqlite3.connect(path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
     migrated.delete_document(tenant_id=item.tenant_id, document_id=item.passage.document_id)
     with pytest.raises(EmbeddingWriteFenced):
         put(SQLiteChunkEmbeddingStore(path), item)

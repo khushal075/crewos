@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 from math import isfinite
+import logging
 import os
 from pathlib import Path
 import re
@@ -23,9 +24,12 @@ from crewos.retrieval.embedding_storage_contracts import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 class SQLiteChunkEmbeddingStore:
     APPLICATION_ID = 0x43524556
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     def __init__(self, path: str | Path, *, lock_timeout_seconds: float = 2):
         if not str(path).strip() or str(path) == ":memory:":
@@ -51,7 +55,7 @@ class SQLiteChunkEmbeddingStore:
             ).fetchall()
             fresh = app_id == 0 and version == 0 and not tables
             if not fresh and (
-                app_id != self.APPLICATION_ID or version not in (1, self.SCHEMA_VERSION)
+                app_id != self.APPLICATION_ID or version not in (1, 2, self.SCHEMA_VERSION)
             ):
                 raise ValueError("Unsupported or unrelated embedding database")
             db.execute(
@@ -65,6 +69,13 @@ class SQLiteChunkEmbeddingStore:
             db.execute(
                 """CREATE TABLE IF NOT EXISTS deleted_embedding_documents (
                 tenant_id TEXT NOT NULL, document_id TEXT NOT NULL,
+                PRIMARY KEY(tenant_id, document_id)
+            )"""
+            )
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS embedding_version_floors (
+                tenant_id TEXT NOT NULL, document_id TEXT NOT NULL,
+                min_version INTEGER NOT NULL CHECK(min_version>=1),
                 PRIMARY KEY(tenant_id, document_id)
             )"""
             )
@@ -99,6 +110,19 @@ class SQLiteChunkEmbeddingStore:
         return tenant_id, str(document_id)
 
     @staticmethod
+    def _version_floor(db, identity):
+        row = db.execute(
+            "SELECT min_version FROM embedding_version_floors WHERE tenant_id=? AND document_id=?",
+            identity,
+        ).fetchone()
+        if row is None:
+            return 1
+        value = row["min_version"]
+        if type(value) is not int or not 1 <= value <= 2**63 - 1:
+            raise EmbeddingStorageCorruption("Invalid embedding version floor")
+        return value
+
+    @staticmethod
     def _decode(row):
         try:
             record = StoredChunkEmbedding.model_validate_json(row["snapshot"])
@@ -128,6 +152,9 @@ class SQLiteChunkEmbeddingStore:
                 ).fetchone()
                 if deleted is not None:
                     raise EmbeddingWriteFenced("Embedding document is durably deleted")
+                floor = self._version_floor(db, (record.tenant_id, str(record.passage.document_id)))
+                if record.passage.document_version < floor:
+                    raise EmbeddingWriteFenced("Embedding source version is obsolete")
                 key = (
                     record.tenant_id,
                     record.space.key,
@@ -167,6 +194,8 @@ class SQLiteChunkEmbeddingStore:
         where = "tenant_id=? AND space_key=? AND document_id=? AND version=?"
         with self._connection() as db:
             db.execute("BEGIN")
+            if version < self._version_floor(db, (tenant, identity)):
+                return ()
             count, size = db.execute(
                 f"SELECT COUNT(*), COALESCE(SUM(length(CAST(snapshot AS BLOB))),0) FROM chunk_embeddings WHERE {where}",
                 key,
@@ -177,6 +206,41 @@ class SQLiteChunkEmbeddingStore:
                 f"SELECT * FROM chunk_embeddings WHERE {where} ORDER BY chunk_index", key
             ).fetchall()
             return tuple(self._decode(row) for row in rows)
+
+    def retain_from_version(self, *, tenant_id: str, document_id: UUID, min_version: int) -> None:
+        identity = self._identity(tenant_id, document_id)
+        if type(min_version) is not int or not 1 <= min_version <= 2**63 - 1:
+            raise ValueError("Minimum version must be a positive SQLite integer")
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if (
+                db.execute(
+                    "SELECT 1 FROM deleted_embedding_documents WHERE tenant_id=? AND document_id=?",
+                    identity,
+                ).fetchone()
+                is not None
+            ):
+                return
+            floor = max(min_version, self._version_floor(db, identity))
+            db.execute(
+                """INSERT INTO embedding_version_floors(tenant_id,document_id,min_version)
+                VALUES(?,?,?) ON CONFLICT(tenant_id,document_id)
+                DO UPDATE SET min_version=excluded.min_version""",
+                (*identity, floor),
+            )
+            removed = db.execute(
+                "DELETE FROM chunk_embeddings WHERE tenant_id=? AND document_id=? AND version<?",
+                (*identity, floor),
+            ).rowcount
+        logger.info(
+            {
+                "event": "embedding_version_floor_advanced",
+                "tenant_id": tenant_id,
+                "document_id": str(document_id),
+                "min_version": floor,
+                "removed_count": removed,
+            }
+        )
 
     def delete_document(self, *, tenant_id: str, document_id: UUID) -> None:
         key = self._identity(tenant_id, document_id)
