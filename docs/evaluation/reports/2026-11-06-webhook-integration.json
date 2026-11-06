@@ -1,0 +1,23 @@
+{
+  "check": "webhook_integration_end_to_end",
+  "passed": true,
+  "recorded_at_utc": "2026-11-06T15:43:02.216036+00:00",
+  "decision_source": "local_model",
+  "model_id": "qwen2.5-coder:14b-instruct-q4_K_M",
+  "checks": {
+    "agent_selected_registered_tool": true,
+    "tool_observation_reached_next_decision": true,
+    "agent_used_requested_external_delivery": true,
+    "denial_before_http": true,
+    "other_tenant_and_missing_unavailable": true,
+    "other_tenant_uses_own_credential": true,
+    "upstream_failure_not_missing_record": true,
+    "http_read_only": true,
+    "correlated_tool_logs": true,
+    "logs_exclude_credentials_and_response_bodies": true
+  },
+  "http_request_count": 4,
+  "elapsed_seconds": 17.349488,
+  "final_answer": "The webhook delivery with ID 'only_a' has been observed to succeed at 2026-11-06T15:42:55.659309Z. However, please note that delivery success does not prove business processing.",
+  "scope": "Real loopback HTTP implementing the documented contract, synthetic tenant contexts and development-only tokens. No API authentication or third-party vendor connection is proven. No existing tenant data, permissions or private environment file is changed. Final-answer truthfulness beyond observing tool use is not evaluated by these checks."
+}

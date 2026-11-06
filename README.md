@@ -2416,6 +2416,27 @@ tenant scope or credentials. A readable delivery has a status and observation ti
 missing/other-tenant records share an unavailable outcome, while upstream failures
 use a separate error channel. See the [contract meanings and next steps](docs/architecture/webhook-integration.md).
 
-This increment defines shapes and interface obligations only. The fixture adapter,
-authorized handler, tool registration and HTTP transport will follow separately.
-No new executable tool or permission grant is enabled.
+The initial increment defined shapes and interface obligations. The executable
+read-only integration is now implemented below; enabling it and granting access
+remain explicit server configuration decisions.
+
+### Read-only webhook integration: executable path
+
+The fixture adapter, authorized handler, tool registration, configured HTTP adapter
+and end-to-end verification are now implemented. The agent can call
+`get_webhook_delivery_status` when the tool is explicitly injected or enabled and
+its trusted context has `webhook_delivery.read`. HTTP connections and credentials
+are tenant-specific, server-configured, and constructed behind the policy gate.
+The tool reads an external logical delivery; it does not submit or retry one.
+
+The HTTP adapter uses the [documented tenant-scoped service contract](docs/architecture/webhook-integration.md),
+rejects redirects and mismatched identities, bounds transport/response work and
+separates missing records from upstream failures. No arbitrary provider URL or
+credential can be supplied through tool arguments. Defaults remain disabled and
+no tenant permissions or private configuration were changed.
+
+The [reproducible local-model run](docs/evaluation/webhook-integration-verification.md)
+passed all 10 end-to-end checks using a real loopback HTTP service, including agent
+tool selection, tenant boundaries, failure behavior and sanitized correlation logs.
+This is an instructed local integration demo, not evidence of a named third-party
+vendor connection. See the same document for commands and regression coverage.
