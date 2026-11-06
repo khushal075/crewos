@@ -2406,3 +2406,16 @@ exact scans, with no ANN index. Existing tenant data/settings have not been migr
 or changed during disposable verification. Restart all source-using processes
 before upgrading a deployed source database. Earlier sections describe incremental
 implementation milestones; this section describes the current retrieval additions.
+
+### External integration foundation: webhook delivery lookup
+
+The first read-only integration now has contracts and a service interface for
+looking up an external webhook delivery's logical status. Its provider-assigned
+`delivery_id` is separate from CrewOS agent/Celery task identity. Input cannot assign
+tenant scope or credentials. A readable delivery has a status and observation time;
+missing/other-tenant records share an unavailable outcome, while upstream failures
+use a separate error channel. See the [contract meanings and next steps](docs/architecture/webhook-integration.md).
+
+This increment defines shapes and interface obligations only. The fixture adapter,
+authorized handler, tool registration and HTTP transport will follow separately.
+No new executable tool or permission grant is enabled.
