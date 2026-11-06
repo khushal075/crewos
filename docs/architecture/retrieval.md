@@ -963,3 +963,18 @@ See [live verification and its limits](../evaluation/hybrid-agent-tool-verificat
 The registered search tool selects hybrid when configured, but the smoke check
 calls the dispatcher directly with trusted synthetic context; a chat-model tool
 selection loop and request authentication are outside this evidence.
+
+
+## Indexed search and reranking additions
+
+The [indexed-search and reranking architecture](reranking-indexed-search.md) now adds
+transactional tenant-local FTS5 keyword indexes (source schema 5), optional bounded
+model scoring, evidence-preserving reranking and current-source point validation.
+Existing BM25/vector/hybrid algorithms retain the scan semantics described above;
+`indexed_bm25` is a separate opt-in agent mode. ANN vector indexing is not included.
+
+The [labeled comparison](../evaluation/labeled-retrieval-evaluation.md) records 27
+queries with development/holdout splits, graded labels, unsupported queries, errors
+and latency. Its model-backed holdout run is reproducible evidence over authored
+fixtures, not independently validated production representativeness. No existing
+application tenant database or private environment file was changed by the run.

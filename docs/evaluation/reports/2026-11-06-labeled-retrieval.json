@@ -1,0 +1,1717 @@
+{
+  "dataset": "integration_incidents_v1",
+  "dataset_sha256": "d5799554d51dd192f8be644f882238b065cea17115db5584dfd002fccb37536d",
+  "provenance": "Developer-authored synthetic integration-incident judgments. Diverse development/holdout cases, not customer data or independently validated production relevance. One chunk per document; labels need domain review before acceptance decisions.",
+  "split": "holdout",
+  "k": 3,
+  "reports": [
+    {
+      "strategy": "bm25_scan",
+      "query_count": 19,
+      "answerable_query_count": 15,
+      "negative_successful_query_count": 4,
+      "negative_hit_rate": 1,
+      "error_count": 0,
+      "latency_ms": {
+        "p50": 0.449,
+        "p95_nearest_rank": 0.758
+      },
+      "metrics": {
+        "recall_at_k": 0.8555555555555555,
+        "mrr_at_k": 0.9333333333333333,
+        "ndcg_at_k": 0.8729630096420955,
+        "precision_at_k": 0.37777777777777777
+      },
+      "queries": [
+        {
+          "case_id": "hcredentials",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "delivery",
+            "retryorder"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.758,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpermission",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "status",
+            "scope"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.556,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 0.5897053367440438,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hlost",
+          "category": "multi_source",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retryorder",
+            "delivery",
+            "rotation"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.575,
+          "recall_at_k": 0.3333333333333333,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 0.5874203951744313,
+          "negative_hit": null
+        },
+        {
+          "case_id": "h503",
+          "category": "operational",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry500",
+            "timeout",
+            "dedup"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.496,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hburst",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "rate",
+            "timeout",
+            "retry400"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.489,
+          "recall_at_k": 0.5,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 0.9173194127129571,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hbad",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry400",
+            "retry500",
+            "scope"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.477,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hbytes",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "signature",
+            "retry400",
+            "retry500"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.447,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hqueue",
+          "category": "operational",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "queue",
+            "deletion",
+            "signature"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.454,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpending",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "status",
+            "timeout",
+            "delivery"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.438,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hsecret",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "queue",
+            "status"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.451,
+          "recall_at_k": 0.0,
+          "mrr_at_k": 0.0,
+          "precision_at_k": 0.0,
+          "ndcg_at_k": 0.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hdelivery",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "delivery",
+            "timeout",
+            "signature"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.439,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hrotation",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "rotation",
+            "signature",
+            "queue"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.443,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hdelete",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "deletion",
+            "rate",
+            "retryorder"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.46,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpolicy",
+          "category": "security",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "isolation",
+            "delivery",
+            "dedup"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.445,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hnegative1",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry500",
+            "retry400",
+            "token"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.423,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative2",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry400",
+            "token",
+            "delivery"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.449,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative3",
+          "category": "cross_tenant",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "scope",
+            "logging"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.427,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative4",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry400",
+            "token",
+            "signature"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.417,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hother",
+          "category": "tenant_scope",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "other_private"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.278,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        }
+      ]
+    },
+    {
+      "strategy": "fts5_index",
+      "query_count": 19,
+      "answerable_query_count": 15,
+      "negative_successful_query_count": 4,
+      "negative_hit_rate": 1,
+      "error_count": 0,
+      "latency_ms": {
+        "p50": 0.384,
+        "p95_nearest_rank": 0.451
+      },
+      "metrics": {
+        "recall_at_k": 0.8555555555555555,
+        "mrr_at_k": 0.9,
+        "ndcg_at_k": 0.8483583265468593,
+        "precision_at_k": 0.37777777777777777
+      },
+      "queries": [
+        {
+          "case_id": "hcredentials",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "queue",
+            "retryorder"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.451,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpermission",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "status",
+            "scope"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.394,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 0.5897053367440438,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hlost",
+          "category": "multi_source",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retryorder",
+            "delivery",
+            "rotation"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.393,
+          "recall_at_k": 0.3333333333333333,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 0.5874203951744313,
+          "negative_hit": null
+        },
+        {
+          "case_id": "h503",
+          "category": "operational",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry500",
+            "timeout",
+            "dedup"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.368,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hburst",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "rate",
+            "timeout",
+            "queue"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.438,
+          "recall_at_k": 0.5,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 0.9173194127129571,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hbad",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry400",
+            "scope",
+            "retry500"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.413,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hbytes",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry400",
+            "signature",
+            "dedup"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.396,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 0.5,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 0.6309297535714575,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hqueue",
+          "category": "operational",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "queue",
+            "deletion",
+            "signature"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.41,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpending",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "status",
+            "timeout",
+            "delivery"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.384,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hsecret",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "queue",
+            "status"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.349,
+          "recall_at_k": 0.0,
+          "mrr_at_k": 0.0,
+          "precision_at_k": 0.0,
+          "ndcg_at_k": 0.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hdelivery",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "delivery",
+            "timeout",
+            "retry400"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.379,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hrotation",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "rotation",
+            "signature",
+            "queue"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.394,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hdelete",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "deletion",
+            "rate",
+            "retryorder"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.362,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpolicy",
+          "category": "security",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "isolation",
+            "dedup",
+            "delivery"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.385,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hnegative1",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry400",
+            "token",
+            "retry500"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.369,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative2",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry400",
+            "token",
+            "rotation"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.361,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative3",
+          "category": "cross_tenant",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "isolation",
+            "logging"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.366,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative4",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry400",
+            "token",
+            "signature"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.349,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hother",
+          "category": "tenant_scope",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "other_private"
+          ],
+          "error_type": null,
+          "elapsed_ms": 0.304,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        }
+      ]
+    },
+    {
+      "strategy": "vector",
+      "query_count": 19,
+      "answerable_query_count": 15,
+      "negative_successful_query_count": 4,
+      "negative_hit_rate": 1,
+      "error_count": 0,
+      "latency_ms": {
+        "p50": 24.405,
+        "p95_nearest_rank": 624.93
+      },
+      "metrics": {
+        "recall_at_k": 0.9555555555555556,
+        "mrr_at_k": 0.9666666666666667,
+        "ndcg_at_k": 0.9274001412032996,
+        "precision_at_k": 0.4222222222222222
+      },
+      "queries": [
+        {
+          "case_id": "hcredentials",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "retryorder",
+            "rate"
+          ],
+          "error_type": null,
+          "elapsed_ms": 624.93,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpermission",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "scope",
+            "signature"
+          ],
+          "error_type": null,
+          "elapsed_ms": 20.412,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 0.7098097413968655,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hlost",
+          "category": "multi_source",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retryorder",
+            "token",
+            "rate"
+          ],
+          "error_type": null,
+          "elapsed_ms": 72.01,
+          "recall_at_k": 0.3333333333333333,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 0.5874203951744313,
+          "negative_hit": null
+        },
+        {
+          "case_id": "h503",
+          "category": "operational",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry500",
+            "rate",
+            "timeout"
+          ],
+          "error_type": null,
+          "elapsed_ms": 26.778,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 0.9828422279067397,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hburst",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "rate",
+            "retry500",
+            "retryorder"
+          ],
+          "error_type": null,
+          "elapsed_ms": 26.489,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hbad",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry400",
+            "retry500",
+            "rate"
+          ],
+          "error_type": null,
+          "elapsed_ms": 24.791,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hbytes",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry400",
+            "signature",
+            "retry500"
+          ],
+          "error_type": null,
+          "elapsed_ms": 24.028,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 0.5,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 0.6309297535714575,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hqueue",
+          "category": "operational",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "queue",
+            "status",
+            "timeout"
+          ],
+          "error_type": null,
+          "elapsed_ms": 22.446,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpending",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "status",
+            "retryorder",
+            "timeout"
+          ],
+          "error_type": null,
+          "elapsed_ms": 22.222,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hsecret",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "logging",
+            "scope",
+            "dedup"
+          ],
+          "error_type": null,
+          "elapsed_ms": 22.448,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hdelivery",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "delivery",
+            "rate",
+            "scope"
+          ],
+          "error_type": null,
+          "elapsed_ms": 21.708,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hrotation",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "rotation",
+            "signature",
+            "logging"
+          ],
+          "error_type": null,
+          "elapsed_ms": 22.191,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hdelete",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "deletion",
+            "rate",
+            "retryorder"
+          ],
+          "error_type": null,
+          "elapsed_ms": 24.42,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpolicy",
+          "category": "security",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "isolation",
+            "logging",
+            "scope"
+          ],
+          "error_type": null,
+          "elapsed_ms": 20.911,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hnegative1",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry500",
+            "scope",
+            "timeout"
+          ],
+          "error_type": null,
+          "elapsed_ms": 24.405,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative2",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "queue",
+            "rate",
+            "token"
+          ],
+          "error_type": null,
+          "elapsed_ms": 26.795,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative3",
+          "category": "cross_tenant",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "isolation",
+            "token",
+            "logging"
+          ],
+          "error_type": null,
+          "elapsed_ms": 24.466,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative4",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "rate",
+            "token",
+            "retry500"
+          ],
+          "error_type": null,
+          "elapsed_ms": 21.837,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hother",
+          "category": "tenant_scope",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "other_private"
+          ],
+          "error_type": null,
+          "elapsed_ms": 28.825,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        }
+      ]
+    },
+    {
+      "strategy": "hybrid",
+      "query_count": 19,
+      "answerable_query_count": 15,
+      "negative_successful_query_count": 4,
+      "negative_hit_rate": 1,
+      "error_count": 0,
+      "latency_ms": {
+        "p50": 27.662,
+        "p95_nearest_rank": 253.089
+      },
+      "metrics": {
+        "recall_at_k": 0.9555555555555556,
+        "mrr_at_k": 0.9555555555555556,
+        "ndcg_at_k": 0.9186714909652024,
+        "precision_at_k": 0.4222222222222222
+      },
+      "queries": [
+        {
+          "case_id": "hcredentials",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "retryorder",
+            "rate"
+          ],
+          "error_type": null,
+          "elapsed_ms": 253.089,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpermission",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "scope",
+            "signature"
+          ],
+          "error_type": null,
+          "elapsed_ms": 37.152,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 0.7098097413968655,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hlost",
+          "category": "multi_source",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retryorder",
+            "token",
+            "rotation"
+          ],
+          "error_type": null,
+          "elapsed_ms": 27.085,
+          "recall_at_k": 0.3333333333333333,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 0.5874203951744313,
+          "negative_hit": null
+        },
+        {
+          "case_id": "h503",
+          "category": "operational",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry500",
+            "timeout",
+            "dedup"
+          ],
+          "error_type": null,
+          "elapsed_ms": 26.461,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hburst",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "rate",
+            "timeout",
+            "retry500"
+          ],
+          "error_type": null,
+          "elapsed_ms": 56.045,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 0.9828422279067397,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hbad",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry400",
+            "retry500",
+            "scope"
+          ],
+          "error_type": null,
+          "elapsed_ms": 30.963,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hbytes",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "signature",
+            "retry400",
+            "retry500"
+          ],
+          "error_type": null,
+          "elapsed_ms": 29.378,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hqueue",
+          "category": "operational",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "queue",
+            "status",
+            "retryorder"
+          ],
+          "error_type": null,
+          "elapsed_ms": 28.297,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpending",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "status",
+            "timeout",
+            "retry500"
+          ],
+          "error_type": null,
+          "elapsed_ms": 28.969,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hsecret",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "queue",
+            "status",
+            "logging"
+          ],
+          "error_type": null,
+          "elapsed_ms": 26.777,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 0.3333333333333333,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 0.5,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hdelivery",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "delivery",
+            "timeout",
+            "retry500"
+          ],
+          "error_type": null,
+          "elapsed_ms": 26.679,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hrotation",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "rotation",
+            "signature",
+            "queue"
+          ],
+          "error_type": null,
+          "elapsed_ms": 26.407,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hdelete",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "deletion",
+            "rate",
+            "retryorder"
+          ],
+          "error_type": null,
+          "elapsed_ms": 27.534,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpolicy",
+          "category": "security",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "isolation",
+            "dedup",
+            "logging"
+          ],
+          "error_type": null,
+          "elapsed_ms": 27.254,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hnegative1",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry500",
+            "token",
+            "timeout"
+          ],
+          "error_type": null,
+          "elapsed_ms": 27.102,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative2",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "isolation",
+            "dedup"
+          ],
+          "error_type": null,
+          "elapsed_ms": 28.761,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative3",
+          "category": "cross_tenant",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "isolation",
+            "scope"
+          ],
+          "error_type": null,
+          "elapsed_ms": 27.662,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative4",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "retry400",
+            "rate"
+          ],
+          "error_type": null,
+          "elapsed_ms": 27.192,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hother",
+          "category": "tenant_scope",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "other_private"
+          ],
+          "error_type": null,
+          "elapsed_ms": 34.799,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        }
+      ]
+    },
+    {
+      "strategy": "hybrid_reranked",
+      "query_count": 19,
+      "answerable_query_count": 15,
+      "negative_successful_query_count": 4,
+      "negative_hit_rate": 1,
+      "error_count": 0,
+      "latency_ms": {
+        "p50": 6420.978,
+        "p95_nearest_rank": 18967.886
+      },
+      "metrics": {
+        "recall_at_k": 0.9777777777777777,
+        "mrr_at_k": 1.0,
+        "ndcg_at_k": 0.9960589085500948,
+        "precision_at_k": 0.4444444444444444
+      },
+      "queries": [
+        {
+          "case_id": "hcredentials",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "retryorder",
+            "rate"
+          ],
+          "error_type": null,
+          "elapsed_ms": 12749.974,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpermission",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "scope",
+            "token",
+            "signature"
+          ],
+          "error_type": null,
+          "elapsed_ms": 18967.886,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hlost",
+          "category": "multi_source",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retryorder",
+            "dedup",
+            "token"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6374.055,
+          "recall_at_k": 0.6666666666666666,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 0.9580414003446834,
+          "negative_hit": null
+        },
+        {
+          "case_id": "h503",
+          "category": "operational",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry500",
+            "timeout",
+            "dedup"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6257.026,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hburst",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "rate",
+            "timeout",
+            "retry500"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6352.344,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 0.9828422279067397,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hbad",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry400",
+            "dedup",
+            "retry500"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6262.667,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hbytes",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "signature",
+            "retry400",
+            "retry500"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6343.654,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hqueue",
+          "category": "operational",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "queue",
+            "status",
+            "retryorder"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6330.443,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpending",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "status",
+            "timeout",
+            "retry500"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6470.883,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hsecret",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "logging",
+            "queue",
+            "status"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6420.978,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hdelivery",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "delivery",
+            "timeout",
+            "retry500"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6291.277,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hrotation",
+          "category": "paraphrase",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "rotation",
+            "signature",
+            "queue"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6416.638,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.6666666666666666,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hdelete",
+          "category": "contrast",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "deletion",
+            "rate",
+            "retryorder"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6420.989,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hpolicy",
+          "category": "security",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "isolation",
+            "dedup",
+            "logging"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6635.774,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        },
+        {
+          "case_id": "hnegative1",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "retry500",
+            "token",
+            "timeout"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6667.364,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative2",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "isolation",
+            "dedup"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6597.873,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative3",
+          "category": "cross_tenant",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "isolation",
+            "scope"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6609.042,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hnegative4",
+          "category": "no_answer",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "token",
+            "retry400",
+            "rate"
+          ],
+          "error_type": null,
+          "elapsed_ms": 6475.561,
+          "recall_at_k": null,
+          "mrr_at_k": null,
+          "ndcg_at_k": null,
+          "precision_at_k": null,
+          "negative_hit": true
+        },
+        {
+          "case_id": "hother",
+          "category": "tenant_scope",
+          "split": "holdout",
+          "retrieved_document_keys": [
+            "other_private"
+          ],
+          "error_type": null,
+          "elapsed_ms": 913.332,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0,
+          "precision_at_k": 0.3333333333333333,
+          "ndcg_at_k": 1.0,
+          "negative_hit": null
+        }
+      ]
+    }
+  ],
+  "scope": "Developer labels, one chunk per document, disposable data. Errors are explicit and count as zero on answerable metrics; negative-hit rates exclude errors. Negative hits mean retrieval returned something, not that an answer was generated. Strategy order and model/cache state affect timing; not a load benchmark.",
+  "recorded_at_utc": "2026-11-06T15:07:18.348772+00:00",
+  "embedding_model": "nomic-embed-text:v1.5",
+  "embedding_revision": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+  "rerank_model": "qwen2.5-coder:14b-instruct-q4_K_M"
+}

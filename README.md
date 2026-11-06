@@ -1,6 +1,6 @@
 # CrewOS
 
-A Python foundation for an AI agent platform, with a fixed two-step workflow, a bounded tool-using agent loop, and tenant-scoped document management. Single-host durable agent records and document versions are implemented. BM25 and opt-in bounded vector retrieval support document-grounded answers with evidence review. Hybrid retrieval, reranking, approvals, and multi-agent evaluation remain planned.
+A Python foundation for an AI agent platform, with a fixed two-step workflow, a bounded tool-using agent loop, and tenant-scoped document management. Single-host durable agent records and document versions are implemented. BM25, opt-in vector/hybrid retrieval, transactional FTS5 keyword indexing, and optional model reranking support document-grounded answers with evidence review. Approvals and multi-agent evaluation remain planned.
 
 ## Contents
 
@@ -2374,3 +2374,35 @@ uses the pinned Nomic model and temporary source/cache databases. It records 3/3
 expected first passages for hybrid and vector, versus 2/3 for BM25 on three synthetic
 queries. This establishes wiring, not general superiority. It does not execute a
 chat-model decision loop, authenticate an API request, or modify `.env.local`.
+
+
+### Indexed keyword search, reranking, and labeled evaluation
+
+Three additional retrieval components are implemented:
+
+1. **Indexed keyword lookup:** `RETRIEVAL_STRATEGY=indexed_bm25` uses tenant-local
+   SQLite FTS5 indexes. Source schema 5 updates/removes index rows inside source
+   transactions, including background jobs; migration backfills latest versions.
+   Searches load matching source snapshots rather than scan the whole tenant corpus.
+2. **Optional reranking:** `RERANKING_ENABLED=true` with an explicit `RERANKING_MODEL`
+   scores a wider candidate pool. Backend code preserves exact evidence and checks
+   current sources before/after inference. It does not grant access or establish
+   answerability. It remains disabled by default.
+3. **Labeled comparison:** a replaceable dataset schema and evaluation runner compare
+   keyword scans, FTS5, vector, hybrid and model-reranked hybrid with graded metrics,
+   unsupported queries, explicit errors and latency. The included 27-query dataset
+   is developer-authored and requires domain review before production acceptance.
+
+See [architecture, interfaces, configuration and migration](docs/architecture/reranking-indexed-search.md),
+[commands and measured evaluation results](docs/evaluation/labeled-retrieval-evaluation.md),
+and [the architectural decision](docs/adr/0001-sqlite-fts5-and-optional-model-reranking.md).
+The live 19-query held-out run completed without backend errors. Reranking improved
+recall@3 from 0.956 to 0.978 on its 15 answerable queries but increased median latency
+from roughly 28 ms to 6.4 seconds. All strategies returned passages for unsupported
+queries, so answerability checking remains necessary.
+
+FTS5 provides an indexed **keyword** path; vector and hybrid paths still use bounded
+exact scans, with no ANN index. Existing tenant data/settings have not been migrated
+or changed during disposable verification. Restart all source-using processes
+before upgrading a deployed source database. Earlier sections describe incremental
+implementation milestones; this section describes the current retrieval additions.
