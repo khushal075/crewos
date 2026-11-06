@@ -3,6 +3,7 @@ from pydantic import ConfigDict, Field, SecretStr, StringConstraints, model_vali
 from decimal import Decimal
 from typing import Annotated, Literal
 from crewos.application.dtos.tool_execution_context import Permission
+from crewos.third_party.webhooks.http_delivery_config import HttpWebhookTenantConfig
 
 
 class Settings(BaseSettings):
@@ -40,6 +41,15 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_REVISION: str | None = None
     EMBEDDING_DIMENSIONS: int | None = Field(default=None, ge=1, le=16384)
     EMBEDDING_TIMEOUT: float = Field(default=30, gt=0, le=120, allow_inf_nan=False)
+
+    # Read-only external webhook integration, unavailable until explicitly enabled.
+    WEBHOOK_INTEGRATION_ENABLED: bool = False
+    WEBHOOK_HTTP_CONNECTIONS: dict[
+        Annotated[str, StringConstraints(strict=True, pattern=r"^[A-Za-z0-9_-]{1,64}$")],
+        HttpWebhookTenantConfig,
+    ] = Field(default_factory=dict)
+    WEBHOOK_TIMEOUT_SECONDS: float = Field(default=5, gt=0, le=30, allow_inf_nan=False)
+    WEBHOOK_MAX_RESPONSE_BYTES: int = Field(default=16384, ge=512, le=65536)
 
     # Tenant-scoped API tokens. No configured token means access is denied.
     TENANT_API_KEYS: dict[str, SecretStr] = Field(default_factory=dict)
@@ -114,6 +124,7 @@ class Settings(BaseSettings):
     model_config = ConfigDict(
         env_file=("k8crew.env", ".env.local"),
         env_file_encoding="utf-8",
+        hide_input_in_errors=True,  # Connection validation must not echo secret-bearing inputs.
         extra="ignore",  # <- This allows unexpected keys like log_level
     )
 
