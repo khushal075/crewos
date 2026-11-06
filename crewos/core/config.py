@@ -20,8 +20,10 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "llama3"
     API_KEY: str = ""
 
-    # Existing search remains BM25 until vector mode is explicitly selected.
-    RETRIEVAL_STRATEGY: Literal["bm25", "vector"] = "bm25"
+    # Existing search remains BM25 until vector or hybrid mode is explicitly selected.
+    RETRIEVAL_STRATEGY: Literal["bm25", "vector", "hybrid"] = "bm25"
+    HYBRID_CANDIDATE_K: int = Field(default=20, ge=1, le=20)
+    HYBRID_RRF_RANK_CONSTANT: int = Field(default=60, ge=1, le=10000)
     EMBEDDING_DB_PATH: str = "var/embeddings.sqlite3"
     EMBEDDING_DOCUMENT_PREFIX: str = ""
     EMBEDDING_QUERY_PREFIX: str = ""

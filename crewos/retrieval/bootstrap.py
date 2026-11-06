@@ -67,10 +67,9 @@ def build_vector_retrieval(
     )
 
 
-def build_hybrid_retrieval(
+def build_hybrid_retriever(
     *,
     reader,
-    executor,
     provider,
     store,
     space,
@@ -82,7 +81,7 @@ def build_hybrid_retrieval(
     max_output_chars: int = 100_000,
     max_embedding_bytes: int = 32_000_000,
     max_embedding_input_bytes: int = 262144,
-) -> RetrievalFacade:
+):
     """BM25 then vector on a shared snapshot; RRF ties prefer BM25 appearance."""
     from crewos.retrieval.document_embedding_indexer import DocumentEmbeddingIndexer
     from crewos.retrieval.strategies.bm25 import BM25Retriever
@@ -110,16 +109,25 @@ def build_hybrid_retrieval(
             ),
         )
 
+    return HybridRetriever(
+        reader=reader,
+        children_factory=children,
+        fusion=ReciprocalRankFusion(rank_constant=rank_constant),
+        candidate_k=candidate_k,
+        max_documents=max_documents,
+        max_snapshot_bytes=max_snapshot_bytes,
+        max_chunks=max_chunks,
+        max_output_chars=max_output_chars,
+    )
+
+
+def build_hybrid_retrieval(
+    *, reader, executor, provider, store, space, **limits
+) -> RetrievalFacade:
+    """Authorize before invoking the composed raw hybrid retriever."""
     return RetrievalFacade(
-        retriever=HybridRetriever(
-            reader=reader,
-            children_factory=children,
-            fusion=ReciprocalRankFusion(rank_constant=rank_constant),
-            candidate_k=candidate_k,
-            max_documents=max_documents,
-            max_snapshot_bytes=max_snapshot_bytes,
-            max_chunks=max_chunks,
-            max_output_chars=max_output_chars,
+        retriever=build_hybrid_retriever(
+            reader=reader, provider=provider, store=store, space=space, **limits
         ),
         executor=executor,
     )

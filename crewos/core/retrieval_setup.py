@@ -39,9 +39,39 @@ class ConfiguredVectorRetriever:
         ).search(request=request, tenant_id=tenant_id)
 
 
+class ConfiguredHybridRetriever:
+    """Lazy composition inside the outer facade's authorization gate."""
+
+    def search(self, *, request, tenant_id):
+        from crewos.core.config import settings
+        from crewos.core.embedding_setup import build_embedding_space, build_text_embedding_provider
+        from crewos.retrieval import build_hybrid_retriever
+        from crewos.retrieval.adapters.sqlite_chunk_embedding_store import SQLiteChunkEmbeddingStore
+
+        space = build_embedding_space()
+        provider = build_text_embedding_provider()
+        store = SQLiteChunkEmbeddingStore(settings.EMBEDDING_DB_PATH)
+        return build_hybrid_retriever(
+            reader=ConfiguredDocumentCorpusReader(),
+            provider=provider,
+            store=store,
+            space=space,
+            candidate_k=settings.HYBRID_CANDIDATE_K,
+            rank_constant=settings.HYBRID_RRF_RANK_CONSTANT,
+            max_chunks=settings.VECTOR_MAX_CHUNKS,
+            max_embedding_bytes=settings.VECTOR_MAX_EMBEDDING_BYTES,
+            max_embedding_input_bytes=settings.VECTOR_MAX_INPUT_BYTES,
+            max_output_chars=8_000,
+        ).search(request=request, tenant_id=tenant_id)
+
+
 def build_agent_retrieval() -> RetrievalFacade:
     from crewos.core.config import settings
 
+    if settings.RETRIEVAL_STRATEGY == "hybrid":
+        return RetrievalFacade(
+            retriever=ConfiguredHybridRetriever(), executor=get_document_executor()
+        )
     if settings.RETRIEVAL_STRATEGY == "vector":
         return RetrievalFacade(
             retriever=ConfiguredVectorRetriever(), executor=get_document_executor()

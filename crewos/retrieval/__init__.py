@@ -8,6 +8,7 @@ from crewos.retrieval.bootstrap import (
     build_bm25_retrieval,
     build_vector_retrieval,
     build_hybrid_retrieval,
+    build_hybrid_retriever,
 )
 from crewos.retrieval.passage_retriever import RetrievalCapacityExceeded
 
@@ -18,6 +19,7 @@ from crewos.retrieval.ranked_result_fusion import (
 
 __all__ = [
     "build_hybrid_retrieval",
+    "build_hybrid_retriever",
     "build_vector_retrieval",
     "build_bm25_retrieval",
     "RankedResultFusionInterface",
