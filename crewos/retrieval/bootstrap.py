@@ -137,3 +137,17 @@ def build_indexed_retrieval(*, index, executor, **limits) -> RetrievalFacade:
     from crewos.retrieval.strategies.indexed_bm25 import IndexedBM25Retriever
 
     return RetrievalFacade(retriever=IndexedBM25Retriever(index, **limits), executor=executor)
+
+
+def build_reranked_retrieval(*, retriever, reranker, source, executor, **limits) -> RetrievalFacade:
+    from crewos.retrieval.strategies.reranking import CurrentPassageValidator, RerankingRetriever
+
+    return RetrievalFacade(
+        retriever=RerankingRetriever(
+            retriever=retriever,
+            reranker=reranker,
+            validator=CurrentPassageValidator(source),
+            **limits,
+        ),
+        executor=executor,
+    )
