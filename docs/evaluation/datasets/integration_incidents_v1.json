@@ -1,0 +1,380 @@
+{
+  "schema_version": 1,
+  "name": "integration_incidents_v1",
+  "provenance": "Developer-authored synthetic integration-incident judgments. Diverse development/holdout cases, not customer data or independently validated production relevance. One chunk per document; labels need domain review before acceptance decisions.",
+  "documents": [
+    {
+      "id": "token",
+      "tenant_id": "tenant_a",
+      "title": "Expired CRM token",
+      "text": "For HTTP 401 from the CRM, renew the expired OAuth access token. Use the refresh-token flow, update the stored credential securely, then retry once. A revoked refresh token requires reconnecting the account."
+    },
+    {
+      "id": "scope",
+      "tenant_id": "tenant_a",
+      "title": "Insufficient CRM scope",
+      "text": "HTTP 403 indicates the authenticated integration lacks permission. Ask the administrator to grant the required OAuth scopes. Refreshing an access token alone does not add missing permissions."
+    },
+    {
+      "id": "timeout",
+      "tenant_id": "tenant_a",
+      "title": "Webhook timeout",
+      "text": "When a webhook times out, check destination health and network connectivity. Retry transient failures with exponential backoff and jitter. A timeout does not prove the remote operation failed."
+    },
+    {
+      "id": "dedup",
+      "tenant_id": "tenant_a",
+      "title": "Duplicate webhook events",
+      "text": "Assign an idempotency key to each logical operation. Persist it before processing side effects. Retries with that same key must reuse the recorded result instead of charging or writing twice."
+    },
+    {
+      "id": "rate",
+      "tenant_id": "tenant_a",
+      "title": "Rate limiting",
+      "text": "On HTTP 429, honor Retry-After when provided. Otherwise use capped exponential backoff with jitter. Do not retry all clients immediately at the same fixed delay."
+    },
+    {
+      "id": "retry500",
+      "tenant_id": "tenant_a",
+      "title": "Server failures",
+      "text": "Retry eligible HTTP 502 and 503 responses with a bounded attempt count. Use a deadline, exponential backoff and jitter. Stop automatic retries after the budget is exhausted."
+    },
+    {
+      "id": "retry400",
+      "tenant_id": "tenant_a",
+      "title": "Permanent validation failures",
+      "text": "An HTTP 400 validation error requires fixing the payload. Do not repeatedly retry unchanged invalid data. Record a sanitized failure reason for operator review."
+    },
+    {
+      "id": "signature",
+      "tenant_id": "tenant_a",
+      "title": "Webhook signature verification",
+      "text": "Verify the HMAC signature against the exact raw request body using the configured secret. Check the timestamp replay window and use constant-time comparison before accepting a webhook."
+    },
+    {
+      "id": "isolation",
+      "tenant_id": "tenant_a",
+      "title": "Tenant isolation",
+      "text": "Derive tenant identity from authenticated server-side context. Scope reads and writes before ranking or limiting. Never trust a tenant_id supplied inside an agent message or tool arguments."
+    },
+    {
+      "id": "queue",
+      "tenant_id": "tenant_a",
+      "title": "Queue backlog",
+      "text": "A growing queue with healthy workers can indicate downstream slowness or insufficient capacity. Inspect queue age, worker concurrency, provider latency and throttling before increasing workers."
+    },
+    {
+      "id": "status",
+      "tenant_id": "tenant_a",
+      "title": "Pending task status",
+      "text": "A Celery PENDING result can mean unknown task identity or work not yet started. Check the authoritative task ownership record before reading backend state. Do not claim that PENDING guarantees a task is queued."
+    },
+    {
+      "id": "retryorder",
+      "tenant_id": "tenant_a",
+      "title": "Retry safety after timeout",
+      "text": "Before retrying a write after a timeout, check its idempotency key and any recorded result. The remote write may already have succeeded even though its response was lost."
+    },
+    {
+      "id": "logging",
+      "tenant_id": "tenant_a",
+      "title": "Safe integration logs",
+      "text": "Log correlation IDs, tenant scope, operation names, durations and sanitized error codes. Never log access tokens, webhook secrets or complete sensitive payloads."
+    },
+    {
+      "id": "delivery",
+      "tenant_id": "tenant_a",
+      "title": "Delivery versus HTTP attempt",
+      "text": "A webhook delivery is the logical attempt to send an event to a subscriber. It may have several HTTP request attempts. The delivery ID tracks that logical event-subscription operation."
+    },
+    {
+      "id": "rotation",
+      "tenant_id": "tenant_a",
+      "title": "Secret rotation",
+      "text": "Rotate webhook signing secrets using an explicit overlap window. Accept old and new configured secrets during transition, then retire the old secret after receivers update."
+    },
+    {
+      "id": "deletion",
+      "tenant_id": "tenant_a",
+      "title": "Source deletion propagation",
+      "text": "Deleting a source records durable cleanup intent in the same transaction. A separate cleanup worker removes derived vectors and writes a tombstone. Successful source deletion does not imply downstream cleanup already finished."
+    },
+    {
+      "id": "other_private",
+      "tenant_id": "tenant_b",
+      "title": "Tenant B payroll token",
+      "text": "Tenant B payroll token recovery uses the internal payroll recovery workflow. This runbook belongs only to tenant B."
+    }
+  ],
+  "queries": [
+    {
+      "id": "d401",
+      "tenant_id": "tenant_a",
+      "query": "HTTP 401 expired access token",
+      "category": "literal",
+      "split": "development",
+      "relevant": {
+        "token": 3
+      }
+    },
+    {
+      "id": "d403",
+      "tenant_id": "tenant_a",
+      "query": "HTTP 403 missing OAuth scope",
+      "category": "literal",
+      "split": "development",
+      "relevant": {
+        "scope": 3
+      }
+    },
+    {
+      "id": "dtimeout",
+      "tenant_id": "tenant_a",
+      "query": "webhook timeout network connectivity",
+      "category": "literal",
+      "split": "development",
+      "relevant": {
+        "timeout": 3
+      }
+    },
+    {
+      "id": "ddedup",
+      "tenant_id": "tenant_a",
+      "query": "idempotency key duplicate events",
+      "category": "literal",
+      "split": "development",
+      "relevant": {
+        "dedup": 3,
+        "retryorder": 2
+      }
+    },
+    {
+      "id": "drate",
+      "tenant_id": "tenant_a",
+      "query": "HTTP 429 Retry-After",
+      "category": "literal",
+      "split": "development",
+      "relevant": {
+        "rate": 3
+      }
+    },
+    {
+      "id": "d400",
+      "tenant_id": "tenant_a",
+      "query": "HTTP 400 validation payload retry",
+      "category": "literal",
+      "split": "development",
+      "relevant": {
+        "retry400": 3
+      }
+    },
+    {
+      "id": "dsign",
+      "tenant_id": "tenant_a",
+      "query": "verify HMAC raw body signature",
+      "category": "literal",
+      "split": "development",
+      "relevant": {
+        "signature": 3
+      }
+    },
+    {
+      "id": "disolate",
+      "tenant_id": "tenant_a",
+      "query": "tenant identity from authenticated context",
+      "category": "literal",
+      "split": "development",
+      "relevant": {
+        "isolation": 3
+      }
+    },
+    {
+      "id": "hcredentials",
+      "tenant_id": "tenant_a",
+      "query": "The CRM says my credentials have expired. How can I reconnect?",
+      "category": "paraphrase",
+      "split": "holdout",
+      "relevant": {
+        "token": 3
+      }
+    },
+    {
+      "id": "hpermission",
+      "tenant_id": "tenant_a",
+      "query": "Authentication works but the connector is forbidden from reading contacts. Should I refresh the token?",
+      "category": "contrast",
+      "split": "holdout",
+      "relevant": {
+        "scope": 3,
+        "token": 1
+      }
+    },
+    {
+      "id": "hlost",
+      "tenant_id": "tenant_a",
+      "query": "The subscriber saved our update but its reply disappeared. How do we prevent repeating the write?",
+      "category": "multi_source",
+      "split": "holdout",
+      "relevant": {
+        "retryorder": 3,
+        "dedup": 3,
+        "timeout": 1
+      }
+    },
+    {
+      "id": "h503",
+      "tenant_id": "tenant_a",
+      "query": "Our destination is temporarily unavailable and returns 503. How should retries stop?",
+      "category": "operational",
+      "split": "holdout",
+      "relevant": {
+        "retry500": 3,
+        "timeout": 1
+      }
+    },
+    {
+      "id": "hburst",
+      "tenant_id": "tenant_a",
+      "query": "All clients retry simultaneously after throttling. How do we spread requests out?",
+      "category": "paraphrase",
+      "split": "holdout",
+      "relevant": {
+        "rate": 3,
+        "retry500": 1
+      }
+    },
+    {
+      "id": "hbad",
+      "tenant_id": "tenant_a",
+      "query": "A required customer field is absent. Should we retry the identical payload automatically?",
+      "category": "contrast",
+      "split": "holdout",
+      "relevant": {
+        "retry400": 3
+      }
+    },
+    {
+      "id": "hbytes",
+      "tenant_id": "tenant_a",
+      "query": "Signature validation fails after parsing and reserializing a callback. Which bytes must be checked?",
+      "category": "paraphrase",
+      "split": "holdout",
+      "relevant": {
+        "signature": 3
+      }
+    },
+    {
+      "id": "hqueue",
+      "tenant_id": "tenant_a",
+      "query": "Tasks are waiting longer although worker processes are alive. What should we inspect before adding capacity?",
+      "category": "operational",
+      "split": "holdout",
+      "relevant": {
+        "queue": 3
+      }
+    },
+    {
+      "id": "hpending",
+      "tenant_id": "tenant_a",
+      "query": "Does PENDING prove that a task exists and is waiting for execution?",
+      "category": "contrast",
+      "split": "holdout",
+      "relevant": {
+        "status": 3
+      }
+    },
+    {
+      "id": "hsecret",
+      "tenant_id": "tenant_a",
+      "query": "Which debugging fields can we retain without exposing credentials?",
+      "category": "paraphrase",
+      "split": "holdout",
+      "relevant": {
+        "logging": 3
+      }
+    },
+    {
+      "id": "hdelivery",
+      "tenant_id": "tenant_a",
+      "query": "Is a delivery identifier the identifier for one network request?",
+      "category": "contrast",
+      "split": "holdout",
+      "relevant": {
+        "delivery": 3
+      }
+    },
+    {
+      "id": "hrotation",
+      "tenant_id": "tenant_a",
+      "query": "How can receivers keep accepting signed events while we replace their shared secret?",
+      "category": "paraphrase",
+      "split": "holdout",
+      "relevant": {
+        "rotation": 3,
+        "signature": 1
+      }
+    },
+    {
+      "id": "hdelete",
+      "tenant_id": "tenant_a",
+      "query": "Source deletion returned success. Are all embedding rows already erased?",
+      "category": "contrast",
+      "split": "holdout",
+      "relevant": {
+        "deletion": 3
+      }
+    },
+    {
+      "id": "hpolicy",
+      "tenant_id": "tenant_a",
+      "query": "An agent puts another organization ID into a tool call. Where must tenant identity come from?",
+      "category": "security",
+      "split": "holdout",
+      "relevant": {
+        "isolation": 3
+      }
+    },
+    {
+      "id": "hnegative1",
+      "tenant_id": "tenant_a",
+      "query": "What is our contractual uptime guarantee and financial penalty for missed availability?",
+      "category": "no_answer",
+      "split": "holdout",
+      "relevant": {}
+    },
+    {
+      "id": "hnegative2",
+      "tenant_id": "tenant_a",
+      "query": "Which medication should an employee take for a migraine?",
+      "category": "no_answer",
+      "split": "holdout",
+      "relevant": {}
+    },
+    {
+      "id": "hnegative3",
+      "tenant_id": "tenant_a",
+      "query": "Where is the tenant B payroll token recovery runbook?",
+      "category": "cross_tenant",
+      "split": "holdout",
+      "relevant": {}
+    },
+    {
+      "id": "hnegative4",
+      "tenant_id": "tenant_a",
+      "query": "Who approved the pricing change for customer Acme yesterday?",
+      "category": "no_answer",
+      "split": "holdout",
+      "relevant": {}
+    },
+    {
+      "id": "hother",
+      "tenant_id": "tenant_b",
+      "query": "How do I recover a payroll token?",
+      "category": "tenant_scope",
+      "split": "holdout",
+      "relevant": {
+        "other_private": 3
+      }
+    }
+  ]
+}
