@@ -21,6 +21,7 @@ services:
       REDIS_RESULT_BACKEND: redis://redis:6379/1
       AGENT_RUN_DB_PATH: /app/var/agent_runs.sqlite3
       DOCUMENT_DB_PATH: /app/var/documents.sqlite3
+      EMBEDDING_DB_PATH: /app/var/embeddings.sqlite3
     ports: ["127.0.0.1:8000:8000"]
     depends_on:
       redis: {condition: service_healthy}
@@ -33,11 +34,26 @@ services:
       REDIS_RESULT_BACKEND: redis://redis:6379/1
       AGENT_RUN_DB_PATH: /app/var/agent_runs.sqlite3
       DOCUMENT_DB_PATH: /app/var/documents.sqlite3
+      EMBEDDING_DB_PATH: /app/var/embeddings.sqlite3
     command: ["worker"]
     healthcheck: {disable: true}
     stop_grace_period: 300s
     depends_on:
       redis: {condition: service_healthy}
+  cleanup:
+    build: .
+    profiles: ["cleanup"]
+    env_file: [".env.local"]
+    volumes: ["agent_run_data:/app/var"]
+    environment:
+      DOCUMENT_DB_PATH: /app/var/documents.sqlite3
+      EMBEDDING_DB_PATH: /app/var/embeddings.sqlite3
+      DOCUMENT_CLEANUP_TENANTS: '["tenant_a"]'
+    entrypoint: ["python", "-m", "crewos.workers.document_cleanup_worker"]
+    command: ["--tenant-id", "tenant_a"]
+    restart: unless-stopped
+    healthcheck: {disable: true}
+    stop_grace_period: 30s
 volumes:
   redis_data:
   ollama_data:

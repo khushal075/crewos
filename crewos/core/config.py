@@ -1,7 +1,7 @@
 from pydantic_settings import BaseSettings
-from pydantic import ConfigDict, Field, SecretStr, model_validator
+from pydantic import ConfigDict, Field, SecretStr, StringConstraints, model_validator
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 from crewos.application.dtos.tool_execution_context import Permission
 
 
@@ -51,6 +51,27 @@ class Settings(BaseSettings):
     DOCUMENT_JOB_LEASE_SECONDS: float = Field(default=180, gt=150, allow_inf_nan=False)
     DOCUMENT_JOB_MAX_ATTEMPTS: int = Field(default=3, ge=1, le=10)
     DOCUMENT_MAX_REQUEST_BYTES: int = Field(default=8_100_000, ge=1024, le=16_000_000)
+
+    # Internal cleanup service scope; independent of revoked user/API credentials.
+    DOCUMENT_CLEANUP_TENANTS: frozenset[
+        Annotated[str, StringConstraints(strict=True, pattern=r"^[A-Za-z0-9_-]{1,64}$")]
+    ] = frozenset()
+    DOCUMENT_CLEANUP_LEASE_SECONDS: float = Field(default=30, ge=10, le=300, allow_inf_nan=False)
+    DOCUMENT_CLEANUP_RETRY_BASE_SECONDS: float = Field(
+        default=10, gt=0, le=86400, allow_inf_nan=False
+    )
+    DOCUMENT_CLEANUP_RETRY_MAX_SECONDS: float = Field(
+        default=300, gt=0, le=86400, allow_inf_nan=False
+    )
+    DOCUMENT_CLEANUP_POLL_SECONDS: float = Field(default=2, ge=0.1, le=60, allow_inf_nan=False)
+    DOCUMENT_CLEANUP_BATCH_SIZE: int = Field(default=20, ge=1, le=100)
+    DOCUMENT_CLEANUP_ALERT_AFTER_ATTEMPTS: int = Field(default=5, ge=1, le=1000000)
+
+    @model_validator(mode="after")
+    def cleanup_retry_bounds(self):
+        if self.DOCUMENT_CLEANUP_RETRY_BASE_SECONDS > self.DOCUMENT_CLEANUP_RETRY_MAX_SECONDS:
+            raise ValueError("Cleanup retry base cannot exceed its maximum")
+        return self
 
     # Single-host durable agent runtime. Shared multi-host storage is a separate adapter.
     AGENT_RUN_DB_PATH: str = "var/agent_runs.sqlite3"
