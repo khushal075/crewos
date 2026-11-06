@@ -2310,3 +2310,19 @@ This service explicitly processes `tenant_a`. Other tenants require their own
 configured scope/process. Compose uses its named volume; it does not automatically
 import host `var/` databases. A locally started terminal process needs restarting
 when its session or machine ends. Events remain durable while the poller is down.
+
+### Live embedding and vector lifecycle verification
+
+The reproducible `crewos.retrieval.vector_lifecycle_demo` command now exercises
+real embedding inference, cache reuse after reopening stores, source update and
+version cleanup, current-version retrieval, permission denial, tenant isolation,
+and deletion with durable write fencing. It runs the real cleanup CLI against
+temporary databases, leaving existing tenant data unchanged.
+
+The [6 November verification report and reproduction command](docs/evaluation/vector-lifecycle-verification.md)
+record 15 passing lifecycle checks and 3/3 expected first passages using the pinned
+local Nomic model. The report includes per-search latency and embedding workload.
+Monetary cost/token usage remain explicitly unmeasured. This is a small development
+smoke check, not a representative relevance or deployment performance benchmark.
+The command supplies model settings explicitly; normal application embedding
+configuration is a separate requirement.

@@ -857,3 +857,14 @@ old-version binaries are not supported against the migrated schema. A source upd
 can commit before vectors exist; the floor still fences obsolete indexing writes.
 This does not embed current chunks or purge historical source snapshots. Polling
 must be enabled and running; completed events are retained as durable receipts.
+
+## Live vector lifecycle evidence
+
+The [vector lifecycle verifier](../evaluation/vector-lifecycle-verification.md)
+combines the real Ollama provider, authorized ingestion/retrieval facades, SQLite
+stores and bounded cleanup CLI subprocesses. It records cold and reopened-cache
+searches, source-update cleanup, current-version indexing, permission/tenant checks,
+and deletion fences. Temporary paths isolate it from application tenant data.
+Successful checks and measured latency/workload are available in the linked report;
+monetary cost is not inferred from byte counts. Representative relevance and load
+evaluation remain separate work.

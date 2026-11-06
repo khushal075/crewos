@@ -1,0 +1,153 @@
+{
+  "check": "synthetic_vector_lifecycle",
+  "passed": true,
+  "recorded_at_utc": "2026-11-06T05:21:47.281481+00:00",
+  "model_id": "nomic-embed-text:v1.5",
+  "revision": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+  "revision_verification": "server_metadata_pre_and_post",
+  "dimensions": 768,
+  "space_key": "d1aaa2ed53673d26d276dd1cfde5485995324a0b1f7409d1c4115971f20d1731",
+  "checks": {
+    "initial_vectors_persisted": true,
+    "warm_search_only_embeds_queries": true,
+    "update_cleanup_completed": true,
+    "old_vectors_removed": true,
+    "search_returns_only_current_version": true,
+    "updated_document_at_1": true,
+    "new_vectors_persisted": true,
+    "obsolete_write_fenced": true,
+    "denial_before_provider_call": true,
+    "other_tenant_sees_no_passages": true,
+    "deletion_cleanup_completed": true,
+    "deleted_document_not_searchable": true,
+    "deleted_vectors_absent_after_reopen": true,
+    "deleted_write_fenced_after_reopen": true,
+    "both_events_acknowledged": true
+  },
+  "relevance": {
+    "case_count": 3,
+    "recall_at_1": 1.0,
+    "mrr_at_1": 1.0,
+    "cases": [
+      {
+        "case_id": "credentials",
+        "expected_at_1": true
+      },
+      {
+        "case_id": "delivery_delay",
+        "expected_at_1": true
+      },
+      {
+        "case_id": "python_role",
+        "expected_at_1": true
+      }
+    ]
+  },
+  "search_latency_ms_by_phase": {
+    "cold": [
+      637.824,
+      25.378,
+      22.132
+    ],
+    "warm_reopened": [
+      22.529,
+      19.587,
+      17.858
+    ],
+    "updated": [
+      41.886
+    ],
+    "authorization": [
+      0.311
+    ],
+    "deleted": [
+      24.271
+    ]
+  },
+  "embedding_work": {
+    "successful_calls": 12,
+    "input_text_count": 12,
+    "input_utf8_bytes": 776,
+    "calls": [
+      {
+        "phase": "cold",
+        "input_text_count": 1,
+        "input_utf8_bytes": 43,
+        "elapsed_ms": 560.496
+      },
+      {
+        "phase": "cold",
+        "input_text_count": 1,
+        "input_utf8_bytes": 105,
+        "elapsed_ms": 19.963
+      },
+      {
+        "phase": "cold",
+        "input_text_count": 1,
+        "input_utf8_bytes": 90,
+        "elapsed_ms": 17.474
+      },
+      {
+        "phase": "cold",
+        "input_text_count": 1,
+        "input_utf8_bytes": 83,
+        "elapsed_ms": 16.463
+      },
+      {
+        "phase": "cold",
+        "input_text_count": 1,
+        "input_utf8_bytes": 62,
+        "elapsed_ms": 15.521
+      },
+      {
+        "phase": "cold",
+        "input_text_count": 1,
+        "input_utf8_bytes": 53,
+        "elapsed_ms": 14.088
+      },
+      {
+        "phase": "warm_reopened",
+        "input_text_count": 1,
+        "input_utf8_bytes": 43,
+        "elapsed_ms": 14.508
+      },
+      {
+        "phase": "warm_reopened",
+        "input_text_count": 1,
+        "input_utf8_bytes": 62,
+        "elapsed_ms": 13.754
+      },
+      {
+        "phase": "warm_reopened",
+        "input_text_count": 1,
+        "input_utf8_bytes": 53,
+        "elapsed_ms": 12.358
+      },
+      {
+        "phase": "updated",
+        "input_text_count": 1,
+        "input_utf8_bytes": 43,
+        "elapsed_ms": 20.028
+      },
+      {
+        "phase": "updated",
+        "input_text_count": 1,
+        "input_utf8_bytes": 96,
+        "elapsed_ms": 16.722
+      },
+      {
+        "phase": "deleted",
+        "input_text_count": 1,
+        "input_utf8_bytes": 43,
+        "elapsed_ms": 20.892
+      }
+    ]
+  },
+  "cost": {
+    "monetary_cost": null,
+    "token_usage": null,
+    "reason": "No embedding tariff or provider token usage is captured. UTF-8 bytes are workload, not tokens. Local compute and electricity costs are not measured."
+  },
+  "elapsed_seconds": 1.083202,
+  "scope": "Three synthetic one-chunk documents, trusted contexts and temporary databases. Real cleanup CLI, but no HTTP authentication, continuous-poller availability, answer generation, concurrency load or representative relevance benchmark. Latencies include provider revision checks and may include model loading; warm means source-vector cache reuse, not cached query embeddings."
+}
