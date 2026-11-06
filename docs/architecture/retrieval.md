@@ -654,11 +654,12 @@ ID, not a cache reset or re-embedding command. Restore content using a new docum
 identity; future cache invalidation needs a distinct operation. SQL deletion does
 not promise secure erasure from WAL files or backups.
 
-This step does not automatically connect source deletion to vector cleanup. Source
-authorization/current-version checks remain necessary. Durable source-event
-propagation and obsolete-version cleanup are the next lifecycle steps.
+Source deletion now durably records an outbox event, as described below. A tenant-scoped polling worker is now implemented; it must be configured and
+running for automatic vector cleanup. Source
+authorization/current-version checks remain necessary. Obsolete-version cleanup is
+also a separate lifecycle step.
 
-## Source-deletion cleanup outbox contracts (not wired yet)
+## Source-deletion cleanup outbox contracts
 
 Ingestion owns `document_cleanup_contracts.py` and
 `document_cleanup_outbox.py`. `DocumentDeletedEvent` is an immutable backend-owned
@@ -675,9 +676,184 @@ initial consumer is vector cleanup; multiple future consumers need independent
 delivery records. Worker crashes recover through lease expiry; retry scheduling
 must not silently discard cleanup work.
 
-There is intentionally no independent append operation. The next implementation
-step must save the event inside the same source-database transaction as deletion.
-A worker can then call the vector store's idempotent fenced deletion and acknowledge
-the event. A crash after vector cleanup but before acknowledgement will replay
-safely. These contracts alone do not create an outbox table, record events, schedule
-workers or change the existing deletion API. Automatic propagation remains pending.
+There is intentionally no independent append operation. Source deletion now records
+the event in its own transaction. A future worker can call the vector store's
+idempotent fenced deletion and acknowledge the event. A crash after vector cleanup
+but before acknowledgement can then replay safely. Claim/complete/retry persistence is now implemented in the source adapter.
+Worker execution is implemented below; propagation requires starting the configured
+poller.
+
+## Transactional deletion-event recording
+
+Source database schema version 3 adds `document_cleanup_outbox`. Existing schema-1
+and schema-2 databases migrate transactionally on open, preserving snapshots and
+existing job records. There is no backfill for deletions predating this migration:
+the deleted identities are not recoverable from absent snapshots. Restart all source
+writers with the new code; older processes do not record these events.
+
+A successful `SQLiteDocumentStore.delete` now commits these changes together:
+
+1. Delete every source version in the requested tenant/document scope.
+2. Fence pending document jobs and remove their retained source payloads.
+3. Insert one backend-generated `DocumentDeletedEvent` with pending delivery state.
+
+The outbox helper shares the existing source transaction and refuses independent
+nontransactional recording. Failed/missing/other-tenant deletions produce no event.
+Concurrent deletions have one successful commit and one event. Failure at any point
+rolls back source removal, job changes and event insertion together. Process-termination
+tests demonstrate both pre-commit rollback and post-commit durability on reopen.
+
+The event contains IDs and time, not source content or vectors. The outbox also
+persists delivery state for the claim/complete/retry operations described below. Deletion API success means **source
+deleted and cleanup intent saved**, not **vector cache already cleaned**. Current
+source checks still exclude deleted content from searches.
+
+Deleted tenant/document identities cannot be reused: a delayed cleanup event must
+not delete embeddings for new content with the same ID. Restoration requires a new
+document ID. The retained outbox row currently supplies this source identity fence;
+do not purge it without preserving an equivalent durable deletion marker. Existing
+vector-cache tombstones use the same permanent-document-deletion assumption.
+
+This transaction covers only the source SQLite database. It does not atomically
+update the vector database or publish a Celery message. Durable claiming/retries and worker execution are implemented below.
+
+## Durable cleanup delivery operations
+
+`SQLiteDocumentStore` now implements `DocumentCleanupOutboxInterface` through its
+cleanup outbox adapter. No additional schema migration is needed beyond source
+schema 3. Each operation uses its own serialized SQLite write transaction:
+
+- `claim_next`: choose the oldest eligible event within the supplied tenant, with
+  event ID as the tie breaker; increment attempts and issue a fresh UUID lease token.
+  Unexpired claims and future retry times are skipped. Expired claims are reclaimed.
+- `complete`: require the current unexpired token, then persist completed state.
+  Repeating completion with the same final token is a no-op; other tokens fail.
+- `retry`: require current ownership, clear the lease, retain the event and schedule
+  its next eligible time. Store a known failure code instead of a raw exception.
+
+Missing, other-tenant, expired and replaced ownership raises `CleanupLeaseLost`.
+Malformed event payloads, indexed identity mismatches and invalid delivery metadata
+raise `CleanupOutboxCorruption` rather than silently completing or dropping work.
+Event decoding is capped at 16 KiB. Attempt-counter exhaustion fails explicitly and
+retains the event. Corruption or repeated failures still need worker alerts and
+operator intervention; these operations do not implement automatic remediation.
+
+Leases accept finite durations in (0, 300] seconds and retries in [0, 86400] seconds.
+Eligibility uses the source host wall clock; operational clock stability matters.
+Workers must treat a claim as temporary ownership, perform idempotent target
+cleanup, and acknowledge only after success. A crash after target cleanup but
+before acknowledgement causes replay after lease expiry. This is at-least-once
+delivery, not exactly-once execution or a cross-database transaction.
+
+Completion retains the event/identity marker, preserving the ban on source ID reuse.
+Lifecycle logs contain tenant/event IDs, attempts and safe failure codes, without
+source text, payloads or lease tokens. Tests cover concurrent claims, stable order,
+restart recovery, stale acknowledgements, tenant scope, retry timing, corruption,
+invalid inputs, rollback and logging privacy. The polling worker and runtime configuration described below are now available;
+they must be enabled and running before vector cleanup happens automatically.
+
+## Tenant-scoped cleanup polling worker
+
+`application/use_cases/process_document_cleanup.py` claims one source-deletion event,
+revalidates its tenant identity, lazily opens the target vector store, performs its
+idempotent fenced deletion, then acknowledges completion. Safe outcomes are `idle`,
+`completed`, `retry_scheduled` and `lease_lost`. Target failures schedule bounded
+exponential retries using known error codes; failures at/above the configured attempt
+threshold emit warnings. Raw exception bodies, payloads and lease tokens are omitted.
+
+Acknowledgement or retry-persistence failures propagate without false completion.
+A process crash after target deletion but before acknowledgement leaves the lease
+recoverable; replay safely repeats deletion. Ownership loss cannot complete or
+reschedule another worker's claim. There is no heartbeat during this short operation;
+slow work can lose its lease and replay. Cleanup remains at-least-once.
+
+`core/document_cleanup_setup.py` checks an explicit server-configured tenant
+allowlist before opening any database and again before each new claim. This is
+an internal service scope, not request authentication or a permission supplied by
+an agent. It intentionally does not require the original API token to remain active:
+authorized deletion cleanup must continue after user credentials are revoked.
+Trusted source events and correct deployment/filesystem access are prerequisites.
+
+`workers/document_cleanup_worker.py` polls the durable outbox directly rather than
+requiring a Celery notification. Redis, Ollama and model credentials are unnecessary.
+Each pass handles at most `DOCUMENT_CLEANUP_BATCH_SIZE` events (default 20), stopping
+on idle. Continuous mode waits between passes, handles transient poll failures and
+exits if service scope is revoked. Events remain durable while the process is down.
+
+Configure the same source/vector file paths used by API and agent processes, plus
+an explicit tenant allowlist (empty by default):
+
+```dotenv
+DOCUMENT_CLEANUP_TENANTS=["tenant_a"]
+DOCUMENT_CLEANUP_LEASE_SECONDS=30
+DOCUMENT_CLEANUP_RETRY_BASE_SECONDS=10
+DOCUMENT_CLEANUP_RETRY_MAX_SECONDS=300
+DOCUMENT_CLEANUP_POLL_SECONDS=2
+DOCUMENT_CLEANUP_BATCH_SIZE=20
+DOCUMENT_CLEANUP_ALERT_AFTER_ATTEMPTS=5
+```
+
+Run one bounded pass:
+
+```bash
+poetry run python -m crewos.workers.document_cleanup_worker --tenant-id tenant_a --once
+```
+
+Run continuously by omitting `--once`. Use process supervision in deployment; no
+background daemon or deployment workload is started automatically. An optional
+Compose cleanup profile provides a supervised tenant_a service.
+`--once` exits 1 for scheduled retries or failures, and 0 for idle/completed or
+lease-loss outcomes. It does not wait for future retry times or imply that every
+retained outbox record is complete. Logs and the final summary contain safe counts.
+Repeated-failure warning logs still require external monitoring/alert routing.
+
+Integration tests run a real CLI subprocess against disposable SQLite databases,
+verify source-to-vector cleanup, and exercise a real process crash before ack.
+They do not establish deployment-scale latency, backup erasure or continuous
+production operation. Embedding pricing remains separate.
+
+## Durable obsolete-version retention (storage boundary)
+
+`ChunkEmbeddingStoreInterface.retain_from_version` accepts a trusted tenant/document
+and minimum source version. The SQLite adapter atomically advances a durable version
+floor and deletes lower-version vectors across all embedding spaces. For example,
+a floor of 3 removes versions 1–2, retains versions 3 onward and rejects later writes
+for 1–2 with `EmbeddingWriteFenced`. A read below the floor returns no cached vectors.
+This is a **source document version**, not an embedding-model revision or digest.
+
+Floors only increase: duplicate, delayed or out-of-order requests cannot roll them
+back. An old indexing task cannot resurrect retired vectors, regardless of whether
+it obtains the SQLite write lock before or after cleanup. A blocked record rolls
+back its entire write batch. Failed deletion rolls back the floor change as well.
+Other tenants/documents are untouched; permanent document deletion remains stronger
+and cannot be undone by retention. Missing documents can receive a floor before a
+late writer arrives. Metadata-only logs record retained floor and removed count.
+
+The **vector database** now uses schema version 3, migrating schemas 1 and 2 on open
+while preserving vectors and permanent-deletion markers. This is independent of
+the source database's schema version. Corrupt floors fail explicitly. Floor markers
+must survive while old writers can retry; they contain IDs/version metadata only.
+
+This operation is internal maintenance, not a public agent tool or permission grant.
+Its caller must obtain the version from authoritative source state. It does not
+generate new embeddings, delete historical source snapshots or establish that a
+particular version is current. Source version commits now record transactional
+`document.version_created` events; the same cleanup poller delivers them to this
+operation. Current-source checks remain the search correctness boundary.
+
+## Transactional source-version propagation
+
+Source schema 4 extends the cleanup outbox with discriminated deletion/version
+events. Each version above 1 records one content-free event in its source commit,
+including `commit_job`. Failure rolls back both. Events carry the tenant, document
+ID and committed source version; callers cannot supply a replacement version at
+cleanup time. The worker dispatches deletion to `delete_document` and version events
+to `retain_from_version`. Both use the same lease, retry and acknowledgment rules.
+
+Migration preserves deletion event identities, states and claim tokens, and queues
+one latest-version event per existing source above version 1. Migration is atomic
+and reopening schema 4 does not duplicate backfill. Restart source writers together;
+old-version binaries are not supported against the migrated schema. A source update
+can commit before vectors exist; the floor still fences obsolete indexing writes.
+This does not embed current chunks or purge historical source snapshots. Polling
+must be enabled and running; completed events are retained as durable receipts.
