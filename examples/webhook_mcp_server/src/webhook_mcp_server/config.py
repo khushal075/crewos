@@ -1,0 +1,1 @@
+"""Scaffold: reference server configuration."""
