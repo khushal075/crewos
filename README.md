@@ -2440,3 +2440,24 @@ passed all 10 end-to-end checks using a real loopback HTTP service, including ag
 tool selection, tenant boundaries, failure behavior and sanitized correlation logs.
 This is an instructed local integration demo, not evidence of a named third-party
 vendor connection. See the same document for commands and regression coverage.
+
+
+### MCP module: first metadata contract
+
+The scaffolded MCP integration module now defines `McpToolDescription`, separating
+untrusted advertised tool metadata from executable CrewOS registrations. It admits
+bounded names/descriptions and object-root JSON schema data, with focused contract
+tests. It does not validate all JSON Schema semantics or authorize/register tools.
+No SDK, connection, server or runtime configuration is enabled by this step. See
+[the layout and contract boundary](docs/architecture/mcp-integration.md#first-contract-advertised-tool-metadata).
+
+
+### MCP invocation and observation contracts
+
+`McpToolCallRequest` now describes a bounded tool name/JSON argument object.
+`McpToolCallResult` carries bounded text/structured content and an explicit error
+flag. These normalized contracts separate remote execution errors from domain
+outcomes and reject unsupported content kinds instead of silently dropping them.
+They do not select a server, grant permissions, validate full advertised schemas,
+or execute tools. Connections, SDK and server code remain scaffolded. See
+[the contract details](docs/architecture/mcp-integration.md#tool-call-and-result-contracts).
