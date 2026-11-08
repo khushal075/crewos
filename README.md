@@ -2461,3 +2461,13 @@ outcomes and reject unsupported content kinds instead of silently dropping them.
 They do not select a server, grant permissions, validate full advertised schemas,
 or execute tools. Connections, SDK and server code remain scaffolded. See
 [the contract details](docs/architecture/mcp-integration.md#tool-call-and-result-contracts).
+
+
+### MCP trusted configuration boundary
+
+The MCP module now has data-only models for tenant-scoped local stdio servers and
+explicit remote-tool/local-alias/permission mappings. Defaults are disabled with
+empty allowlists; duplicate scoped identities/aliases and invalid transport inputs
+are rejected. Environment values are redacted. No process or MCP connection is
+started, and no runtime settings or registrations are changed. See
+[trusted local-server configuration](docs/architecture/mcp-integration.md#trusted-local-server-configuration).
