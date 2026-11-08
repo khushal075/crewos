@@ -1,10 +1,10 @@
 # MCP integration layout
 
-Status: metadata, invocation and result contracts implemented. `contracts.py` now
-defines normalized discovery/call/result models, and `tests/mcp_integration/test_contracts.py` contains
-real shape/admission tests. Other proposed implementation/test files remain
-placeholders. No MCP SDK, connection, executable server, tool registration or
-configuration change has been added. We will discuss each remaining component
+Status: discovery/call/result contracts and trusted stdio server configuration
+are implemented, with focused tests. The client interface is defined. Remaining
+catalog, connection, SDK, server and domain-adapter files are still placeholders. No MCP SDK,
+connection, executable server, tool registration or runtime configuration wiring
+has been added. We will discuss each remaining component
 before implementing it.
 
 ```text
@@ -148,3 +148,82 @@ Tests cover round-trip, strict booleans/JSON, field/byte/count limits, forbidden
 connection/authority fields, content-kind rejection, exact text preservation, error
 versus domain outcome and mutation/revalidation. SDK/connection/server scaffolds
 remain unchanged and no protocol interoperability is claimed.
+
+
+## Trusted local-server configuration
+
+`server_configuration.py` defines four data-only models:
+
+- `McpStdioTransport`: absolute executable path, literal argument tuple, optional
+  absolute working directory and explicitly supplied environment values.
+- `ApprovedMcpTool`: remote tool name, local alias, required CrewOS permission and
+  operator-assigned replay safety (false by default).
+- `McpServerConfiguration`: server ID, tenant ID, transport, enable flag, timeout
+  and tool allowlist. Defaults are disabled, a five-second timeout and no tools.
+- `McpServerConfigurations`: bounded set of server definitions; empty by default.
+
+`stdio` means the future client starts a local child process and exchanges protocol
+messages through stdin/stdout. Only this transport is admitted initially. HTTP MCP
+configuration/authorization is not implemented by these models. Absolute paths are
+validated syntactically using the host platform; existence/permissions are not
+checked and no process is started. Arguments remain individual strings, not a
+shell command. The configured executable may itself run arbitrary code, including a
+shell: operator approval is essential and this is not a process sandbox.
+
+A server definition belongs to one tenant. Server IDs and local aliases may repeat
+across tenants; duplicates within a tenant are rejected. A server has at most 16
+allowlisted tools, with unique remote names and local aliases. A configuration set
+has at most 32 servers. Aliases are also unique across configured servers in one
+tenant, including disabled definitions to reserve their names. Collisions against
+existing non-MCP registry tools must be checked later during composition.
+
+Permissions are explicit action names such as `webhook_delivery.read`, not wildcards
+or automatically inferred roles. A model/server cannot grant these by supplying
+metadata. Constructing `ApprovedMcpTool` does not prove trusted provenance or grant
+the caller a permission; only trusted operator configuration may supply it. The
+future handler must still enforce permissions on each invocation. Remote read-only
+annotations do not establish replay safety. Tool-schema compatibility and changes
+must be checked separately by the future approved-tool/catalog/client layers.
+
+Configuration admits at most 64 arguments of 2048 characters, 32 explicit environment
+entries with portable names, and environment values up to 4096 characters. NUL is
+rejected. Environment values use `SecretStr`; repr/JSON serialization redact them.
+Use environment/secret management rather than command arguments for credentials.
+Redacted JSON is not a secret backup: trusted Python-mode revalidation preserves
+SecretStr values. These models do not inherit a parent process environment; the
+future SDK adapter must deliberately choose and enforce its environment policy.
+Nested dictionaries can still be mutated, so later boundaries must snapshot and
+revalidate configuration rather than assume deep immutability.
+
+The timeout is a finite positive value at most 30 seconds. It is stored configuration
+only; a future transport must enforce it and cap it by remaining execution budget.
+Nothing reads a private environment file, launches a process, discovers tools,
+registers handlers or changes application settings through constructing this model.
+The configuration is not wired into CrewOS settings yet. The client interface is
+now defined; the approved-tool catalog and connection/SDK implementation remain next.
+
+
+## MCP client interface
+
+`mcp_client.py` defines `McpClientInterface`, a structural `Protocol` for one
+tenant/server session. Its asynchronous methods are `discover_tools`, `call_tool`
+and `close`. The future connection manager creates the initialized session from
+trusted configuration. No model-supplied tenant, executable or credential selects
+its connection. No SDK, subprocess or application wiring is implemented yet.
+
+Discovery returns normalized descriptions, not authorized tools. The interface
+requires complete pagination within one time allowance, at most 128 tools and
+1 MiB of combined compact UTF-8 normalized metadata JSON. Duplicate names,
+oversized data or unsupported protocol content must fail rather than disappear
+through truncation. These are CrewOS admission requirements, not MCP standard
+limits; adapter tests must verify their enforcement later.
+
+Calls require prior CrewOS authorization and approved-schema validation. A valid
+remote tool error returns `is_error=True`; `McpConnectionError` represents connection
+or timeout failures, while `McpProtocolError` represents malformed or unsupported
+data. Neither means the business record is missing. Calls must not retry
+automatically because a missing response does not prove an action failed to run.
+Timeouts must be finite, positive and capped by configuration and remaining caller
+budget across all waits. Cleanup must be bounded, cancellation must propagate, and
+repeated close must be safe. These are implementation obligations, not behavior
+that a Python Protocol enforces. The next increment is the approved-tool catalog.
