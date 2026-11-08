@@ -2,7 +2,9 @@
 
 Status: discovery/call/result contracts and trusted stdio server configuration
 are implemented, with focused tests. The client interface is defined. Remaining
-catalog, connection, SDK, server and domain-adapter files are still placeholders. No MCP SDK,
+SDK, server and domain-adapter files are still placeholders. The connection
+manager now defines a per-execution lifecycle using an injectable factory. The
+approved-tool catalog now performs name admission against trusted mappings. No MCP SDK,
 connection, executable server, tool registration or runtime configuration wiring
 has been added. We will discuss each remaining component
 before implementing it.
@@ -227,3 +229,63 @@ Timeouts must be finite, positive and capped by configuration and remaining call
 budget across all waits. Cleanup must be bounded, cancellation must propagate, and
 repeated close must be safe. These are implementation obligations, not behavior
 that a Python Protocol enforces. The next increment is the approved-tool catalog.
+
+
+## Approved-tool catalog: name admission
+
+`ApprovedMcpToolCatalog` snapshots one trusted tenant/server configuration and
+its discovered descriptions. Disabled configurations expose nothing. Enabled
+configurations reject duplicate discovered names, missing configured tools and
+discovery exceeding 128 tools or 1 MiB of normalized metadata. Unmapped remote
+tools are excluded. Each admitted entry preserves the operator's local alias,
+permission and replay-safety assignment; none comes from server annotations.
+Metadata is revalidated in Python mode and stored as an immutable JSON snapshot;
+reading a description returns a fresh model to prevent nested mutation.
+
+Resolution is local to one catalog. Future composition must select that catalog
+from trusted context and check aliases across the complete registry. This does
+not grant callers permission, register tools, validate full JSON Schema semantics
+or approve schema compatibility. Those checks must precede executable registration;
+name admission alone is insufficient. No MCP connection is opened by the catalog.
+
+
+## Trusted schema comparison
+
+`schema_compatibility.verify_schema_compatibility` compares an admitted entry
+against a `McpToolDescription` supplied independently by trusted application code.
+It checks remote identity and exact input/output schema JSON, ignoring object-key
+order and descriptive text. Missing versus present output schemas differ. Array
+order and numeric representation remain significant; this is conservative pinning,
+not a proof of semantic JSON Schema equivalence. A mismatch raises a sanitized
+`McpSchemaMismatch`. Trusted metadata is revalidated before comparison.
+
+The expected schema must never be copied from current discovery as an automatic
+approval. This helper is not yet wired into executable registration: that path
+does not exist. Future composition must supply trusted expectations, run this
+check and validate invocation data with local input/output models. Matching pins
+do not validate schema semantics, resolve references or authorize callers.
+
+
+## Per-execution connection management
+
+`McpConnectionManager.session` is an asynchronous context manager: entering opens
+one initialized client through `McpClientFactoryInterface`; leaving calls `close`.
+There is no pool, shared session or retry. It snapshots configuration, rejects
+disabled servers and mismatched tenant scope, and caps initialization by both the
+configured timeout and caller allowance. Tenant identity must come from verified
+application context; this check does not authenticate callers or authorize tools.
+
+Initialization failure is sanitized. The factory owns cleanup of partial creation
+because no client has been returned yet. Completed sessions receive a separate,
+bounded cleanup allowance on success, body failure or cancellation. Cleanup errors
+fail successful operations, but do not replace an existing operation failure.
+Cancellation propagates. Timeouts rely on cooperative async implementations; an
+uncooperative adapter or repeated cancellation can interrupt cleanup, so this is
+not a guarantee that arbitrary child processes are terminated. The SDK adapter
+must implement and test process/task ownership, cancellation and partial cleanup.
+It must not leave task-bound context managers open across a factory return.
+
+Each discovery/call still needs its remaining execution budget; the initialization
+timeout is not a total session deadline. Tests use controlled clients to verify
+scope rejection, distinct sessions, timeout capping, failure and cancellation
+cleanup. No SDK connection or subprocess interoperability is claimed yet.
