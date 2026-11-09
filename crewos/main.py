@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from crewos.api.routes import router as api_router
+from crewos.api.feedback_routes import router as feedback_router
 from crewos.api.approval_routes import router as approval_router
 from crewos.api.agent_routes import router as agent_router
 from crewos.api.document_routes import router as document_router
@@ -42,3 +43,4 @@ app.include_router(agent_router)
 app.include_router(document_router)
 
 app.include_router(approval_router)
+app.include_router(feedback_router)

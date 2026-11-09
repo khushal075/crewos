@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     # LLM
     LLM_BASE_URL: str = ""
     LLM_MODEL: str = "llama3"
+    AGENT_FEEDBACK_ENABLED: bool = False
+    AGENT_FEEDBACK_DB_PATH: str = "var/agent_feedback.sqlite3"
     AGENT_ACTIONS_ENABLED: bool = False
     AGENT_ACTION_DB_PATH: str = "var/agent_actions.sqlite3"
     AGENT_ACTION_APPROVAL_TTL: int = Field(default=900, ge=1, le=86400)
