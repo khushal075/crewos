@@ -1,13 +1,8 @@
 # MCP integration layout
 
-Status: discovery/call/result contracts and trusted stdio server configuration
-are implemented, with focused tests. The client interface is defined. Remaining
-SDK, server and domain-adapter files are still placeholders. The connection
-manager now defines a per-execution lifecycle using an injectable factory. The
-approved-tool catalog now performs name admission against trusted mappings. No MCP SDK,
-connection, executable server, tool registration or runtime configuration wiring
-has been added. We will discuss each remaining component
-before implementing it.
+Status: the read-only webhook tool works end to end over local stdio MCP.
+Configuration is opt-in. The reference server runs as an independent subprocess,
+and the scripted agent demo verifies both successful and rejected requests.
 
 ```text
 crewos/
@@ -17,6 +12,7 @@ crewos/
 │   ├── server_configuration.py
 │   ├── mcp_client.py
 │   ├── approved_tool_catalog.py
+│   ├── schema_compatibility.py
 │   ├── connection_manager.py
 │   └── adapters/
 │       ├── __init__.py
@@ -26,9 +22,9 @@ crewos/
     └── mcp_setup.py
 
 examples/webhook_mcp_server/
-├── pyproject.toml                   # Comment-only packaging placeholder
-├── Dockerfile                       # Comment-only image placeholder
-├── .env.example                     # Comment-only configuration placeholder
+├── pyproject.toml
+├── Dockerfile
+├── .env.example
 ├── README.md
 ├── src/webhook_mcp_server/
 │   ├── __init__.py
@@ -53,11 +49,11 @@ docs/
 ├── adr/0002-mcp-client-module-boundary.md
 └── evaluation/
     ├── mcp-integration-verification.md
-    └── reports/                     # Existing directory; no MCP report yet
+    └── reports/
 ```
 
 Existing delivery contracts, handler, HTTP adapter and tool composition remain in
-their current locations. They have not been changed by this scaffold.
+their current locations. The same protected handler can now use either transport.
 
 
 ## First contract: advertised tool metadata
@@ -73,10 +69,9 @@ metadata, not an executable CrewOS `ToolDefinition`:
 | `output_schema` | Optional JSON object with the same root requirement. |
 
 These are CrewOS admission rules for the initial normalized representation, not a
-claim to implement every MCP wire field or schema form. An SDK adapter will later
-translate wire names such as `inputSchema` into these internal fields; it does not
-exist yet. The existing delivery input can supply its advertised argument shape
-through `GetWebhookDeliveryStatusInput.model_json_schema()`.
+claim to implement every MCP wire field or schema form. The SDK adapter
+translates wire names such as `inputSchema` into these internal fields. The local
+delivery input provides the expected argument shape through `GetWebhookDeliveryStatusInput.model_json_schema()`.
 
 The model rejects extra authority/handler fields, non-JSON values, non-finite numbers
 and total metadata above 65,536 UTF-8 bytes. It preserves admitted schema content.
@@ -84,7 +79,7 @@ It does **not** check all JSON Schema keyword semantics, validate future call
 arguments, resolve `$ref` targets, prove a server's claims, establish tenant identity,
 or approve/register a tool. A root-shaped schema can still be semantically invalid;
 full schema compatibility/argument validation remains a later execution boundary.
-Transport-level limits must also apply before loading remote messages.
+A transport that accepts untrusted executables would also need a pre-parse wire limit.
 
 Field reassignment is frozen. Nested schema dictionaries are not deeply immutable;
 consumers must snapshot/revalidate them at later trust boundaries. Input dictionaries
@@ -121,11 +116,11 @@ Generic argument admission does not validate arguments against the advertised sc
 The whole result is bounded to 65,536 serialized UTF-8 bytes, including text and
 structured data. Values are never truncated. Images, audio, embedded resources
 and other MCP content kinds are unsupported by this initial normalized contract;
-future SDK translation must reject or explicitly support them, never silently
+the SDK adapter rejects unsupported kinds, never silently
 omit unsupported blocks. Both text and structured content may be present; this
 shape does not establish that they agree or satisfy an advertised output schema.
 
-The future SDK adapter must populate `is_error` explicitly, including applying the
+The SDK adapter populates `is_error` explicitly, including applying the
 selected protocol's semantics when its wire field is omitted. An error result is
 not a missing domain record, even if structured data claims `outcome=unavailable`.
 A domain adapter must check the error flag before interpreting a success payload.
@@ -143,13 +138,12 @@ All models forbid extra top-level fields and prevent field reassignment. Nested
 argument/structured dictionaries remain mutable. Future consumers should validate
 from a Python-mode dump before serialization when handling existing model instances;
 JSON serialization alone can normalize non-finite values after a bypassed mutation.
-Call input dictionaries are copied during validation. Actual transport must enforce
-wire limits before parsing; these are post-parsing admission limits.
+Call input dictionaries are copied during validation. These are post-parsing admission limits; the SDK stdio transport does not enforce
+a pre-parse wire size cap.
 
 Tests cover round-trip, strict booleans/JSON, field/byte/count limits, forbidden
 connection/authority fields, content-kind rejection, exact text preservation, error
-versus domain outcome and mutation/revalidation. SDK/connection/server scaffolds
-remain unchanged and no protocol interoperability is claimed.
+versus domain outcome and mutation/revalidation. See the verification walkthrough for real subprocess coverage.
 
 
 ## Trusted local-server configuration
@@ -164,7 +158,7 @@ remain unchanged and no protocol interoperability is claimed.
   and tool allowlist. Defaults are disabled, a five-second timeout and no tools.
 - `McpServerConfigurations`: bounded set of server definitions; empty by default.
 
-`stdio` means the future client starts a local child process and exchanges protocol
+`stdio` means the client starts a local child process and exchanges protocol
 messages through stdin/stdout. Only this transport is admitted initially. HTTP MCP
 configuration/authorization is not implemented by these models. Absolute paths are
 validated syntactically using the host platform; existence/permissions are not
@@ -183,9 +177,9 @@ Permissions are explicit action names such as `webhook_delivery.read`, not wildc
 or automatically inferred roles. A model/server cannot grant these by supplying
 metadata. Constructing `ApprovedMcpTool` does not prove trusted provenance or grant
 the caller a permission; only trusted operator configuration may supply it. The
-future handler must still enforce permissions on each invocation. Remote read-only
+handler enforces permissions on each invocation. Remote read-only
 annotations do not establish replay safety. Tool-schema compatibility and changes
-must be checked separately by the future approved-tool/catalog/client layers.
+are checked by the catalog and schema verifier before an MCP webhook invocation.
 
 Configuration admits at most 64 arguments of 2048 characters, 32 explicit environment
 entries with portable names, and environment values up to 4096 characters. NUL is
@@ -193,32 +187,31 @@ rejected. Environment values use `SecretStr`; repr/JSON serialization redact the
 Use environment/secret management rather than command arguments for credentials.
 Redacted JSON is not a secret backup: trusted Python-mode revalidation preserves
 SecretStr values. These models do not inherit a parent process environment; the
-future SDK adapter must deliberately choose and enforce its environment policy.
+SDK merges its default environment allowlist with explicitly configured overrides.
 Nested dictionaries can still be mutated, so later boundaries must snapshot and
 revalidate configuration rather than assume deep immutability.
 
 The timeout is a finite positive value at most 30 seconds. It is stored configuration
-only; a future transport must enforce it and cap it by remaining execution budget.
+only until the connection manager and adapter apply it and cap it by remaining budget.
 Nothing reads a private environment file, launches a process, discovers tools,
 registers handlers or changes application settings through constructing this model.
-The configuration is not wired into CrewOS settings yet. The client interface is
-now defined; the approved-tool catalog and connection/SDK implementation remain next.
+The composition layer reads this configuration from CrewOS settings only for opt-in MCP.
 
 
 ## MCP client interface
 
 `mcp_client.py` defines `McpClientInterface`, a structural `Protocol` for one
 tenant/server session. Its asynchronous methods are `discover_tools`, `call_tool`
-and `close`. The future connection manager creates the initialized session from
+and `close`. The connection manager creates the initialized session from
 trusted configuration. No model-supplied tenant, executable or credential selects
-its connection. No SDK, subprocess or application wiring is implemented yet.
+its connection.
 
 Discovery returns normalized descriptions, not authorized tools. The interface
 requires complete pagination within one time allowance, at most 128 tools and
 1 MiB of combined compact UTF-8 normalized metadata JSON. Duplicate names,
 oversized data or unsupported protocol content must fail rather than disappear
 through truncation. These are CrewOS admission requirements, not MCP standard
-limits; adapter tests must verify their enforcement later.
+limits; SDK adapter tests verify count, byte and pagination rejection.
 
 Calls require prior CrewOS authorization and approved-schema validation. A valid
 remote tool error returns `is_error=True`; `McpConnectionError` represents connection
@@ -228,7 +221,7 @@ automatically because a missing response does not prove an action failed to run.
 Timeouts must be finite, positive and capped by configuration and remaining caller
 budget across all waits. Cleanup must be bounded, cancellation must propagate, and
 repeated close must be safe. These are implementation obligations, not behavior
-that a Python Protocol enforces. The next increment is the approved-tool catalog.
+that a Python Protocol enforces.
 
 
 ## Approved-tool catalog: name admission
@@ -260,9 +253,8 @@ not a proof of semantic JSON Schema equivalence. A mismatch raises a sanitized
 `McpSchemaMismatch`. Trusted metadata is revalidated before comparison.
 
 The expected schema must never be copied from current discovery as an automatic
-approval. This helper is not yet wired into executable registration: that path
-does not exist. Future composition must supply trusted expectations, run this
-check and validate invocation data with local input/output models. Matching pins
+approval. The MCP webhook reader supplies trusted expectations and checks them
+after discovery and before invocation, then validates the result with its local model. Matching pins
 do not validate schema semantics, resolve references or authorize callers.
 
 
@@ -288,4 +280,46 @@ It must not leave task-bound context managers open across a factory return.
 Each discovery/call still needs its remaining execution budget; the initialization
 timeout is not a total session deadline. Tests use controlled clients to verify
 scope rejection, distinct sessions, timeout capping, failure and cancellation
-cleanup. No SDK connection or subprocess interoperability is claimed yet.
+cleanup. Separate SDK tests verify subprocess interoperability and cleanup.
+
+## Runtime wiring
+
+```mermaid
+flowchart LR
+    A[Agent tool choice] --> D[Dispatcher validates delivery ID]
+    D --> P{CrewOS permission}
+    P -- Deny --> F[Stop without opening session]
+    P -- Allow --> R[Select tenant server]
+    R --> S[SDK initializes stdio subprocess]
+    S --> C[Discover and verify allowlist and schemas]
+    C --> W[Call read-only webhook tool]
+    W --> V[Validate tenant delivery and result]
+    V --> X[Close session and return observation]
+```
+
+`MCP_WEBHOOK_ENABLED=true` selects MCP for the existing webhook tool. HTTP
+remains the default adapter when enabled without MCP. There is no HTTP fallback
+after an MCP error. Configuration needs exactly one matching enabled server per
+tenant, an explicit mapping for the known tool, and the existing
+`webhook_delivery.read` permission for the caller. Registration does not contact
+a server. The model sees the local tool description, not server-supplied prose.
+
+Example settings for the independently installed reference executable:
+
+```dotenv
+MCP_WEBHOOK_ENABLED=true
+MCP_WEBHOOK_SERVERS={"servers":[{"server_id":"reference","tenant_id":"tenant_a","enabled":true,"transport":{"command":"/tmp/crewos-webhook-server/bin/webhook-mcp-server","environment":{"WEBHOOK_MCP_TENANT":"tenant_a"}},"allowed_tools":[{"remote_name":"get_webhook_delivery_status","local_name":"get_webhook_delivery_status","required_permission":"webhook_delivery.read"}]}]}
+```
+
+Grant the permission separately through the existing tenant configuration. The
+adapter checks the result's claimed tenant ID to catch launch misconfiguration;
+a malicious executable could lie. Use trusted executables only. The SDK inherits
+a limited environment by default and parses wire messages before CrewOS applies
+its normalized size limits. Those limits are not a wire cap or process sandbox.
+The adapter rejects schema references in advertised outputs before calling tools,
+discards child stderr, and returns sanitized integration errors. MCP calls do not
+automatically replay after an uncertain execution.
+
+See the [verification walkthrough](../evaluation/mcp-integration-verification.md)
+for commands, traces and coverage scope. Independent deployment of CrewOS's
+remaining modules is the subsequent repository refactor.

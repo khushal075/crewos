@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "checks": {
+    "real_mcp_observation_reached_agent": true,
+    "permission_denied_before_process_start": true,
+    "other_tenant_matches_missing": true,
+    "mismatched_server_tenant_rejected": true,
+    "server_failure_not_a_missing_record": true
+  },
+  "sessions_started": 5,
+  "decision_source": "scripted",
+  "final_answer": "Observed webhook status: succeeded.",
+  "scope": "Real stdio MCP, synthetic tenant data and contexts; no live LLM or vendor service."
+}

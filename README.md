@@ -2444,7 +2444,7 @@ vendor connection. See the same document for commands and regression coverage.
 
 ### MCP module: first metadata contract
 
-The scaffolded MCP integration module now defines `McpToolDescription`, separating
+The MCP integration module defines `McpToolDescription`, separating
 untrusted advertised tool metadata from executable CrewOS registrations. It admits
 bounded names/descriptions and object-root JSON schema data, with focused contract
 tests. It does not validate all JSON Schema semantics or authorize/register tools.
@@ -2459,7 +2459,7 @@ No SDK, connection, server or runtime configuration is enabled by this step. See
 flag. These normalized contracts separate remote execution errors from domain
 outcomes and reject unsupported content kinds instead of silently dropping them.
 They do not select a server, grant permissions, validate full advertised schemas,
-or execute tools. Connections, SDK and server code remain scaffolded. See
+or execute tools. See
 [the contract details](docs/architecture/mcp-integration.md#tool-call-and-result-contracts).
 
 
@@ -2469,5 +2469,22 @@ The MCP module now has data-only models for tenant-scoped local stdio servers an
 explicit remote-tool/local-alias/permission mappings. Defaults are disabled with
 empty allowlists; duplicate scoped identities/aliases and invalid transport inputs
 are rejected. Environment values are redacted. No process or MCP connection is
-started, and no runtime settings or registrations are changed. See
+started merely by constructing these models. See
 [trusted local-server configuration](docs/architecture/mcp-integration.md#trusted-local-server-configuration).
+
+### Run the MCP webhook demo
+
+```sh
+poetry install
+poetry run python -m crewos.evaluation.mcp_integration_demo
+```
+
+The scripted agent calls the existing webhook tool through CrewOS policy, a
+tenant-scoped MCP client, and a real local stdio subprocess. The report verifies
+that the observation reaches the agent, denied requests never start a process,
+and tenant mismatches and connection failures are rejected. No live model or
+vendor is needed. The independently packaged reference server is under
+[examples/webhook_mcp_server](examples/webhook_mcp_server/README.md).
+
+See the [step-by-step verification](docs/evaluation/mcp-integration-verification.md)
+and [architecture and opt-in configuration](docs/architecture/mcp-integration.md#runtime-wiring).
