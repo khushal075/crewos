@@ -1,8 +1,13 @@
 """Assemble an agent loop without performing inference or task reads."""
 
+import httpx
+from langchain_openai import ChatOpenAI
 from langchain_core.language_models.chat_models import BaseChatModel
 
+from crewos.application.services.fallback_decision_provider import FallbackDecisionProvider
+from crewos.third_party.llm.fallback_configuration import eligible_provider_failure
 from crewos.application.dtos.model_decision import AgentAnswerMode
+from crewos.application.interfaces.decision_provider import DecisionProviderInterface
 from crewos.application.interfaces.document_answer_reviewer import DocumentAnswerReviewerInterface
 from crewos.third_party.llm.document_answer_reviewer import JsonDocumentAnswerReviewer
 from crewos.application.interfaces.task_status_reader import TaskStatusReaderInterface
@@ -33,13 +38,50 @@ def build_agent_loop(
     """
     if max_decisions > settings.AGENT_MAX_DECISIONS:
         raise ValueError("Decision budget exceeds server policy")
-    return AgentLoop(
-        provider=JsonDecisionAdapter(
-            model,
+
+    def adapter(chat_model):
+        return JsonDecisionAdapter(
+            chat_model,
             answer_mode=answer_mode,
             max_call_timeout_seconds=settings.LLM_TIMEOUT,
             max_output_tokens=settings.AGENT_MAX_OUTPUT_TOKENS,
-        ),
+        )
+
+    provider: DecisionProviderInterface = adapter(model)
+    fallback = settings.AGENT_FALLBACK_MODEL
+    if fallback is not None:
+
+        class SecondaryDecisionProvider(DecisionProviderInterface):
+            def decide(self, *, messages, tools, timeout_seconds):
+                with httpx.Client(follow_redirects=False, trust_env=False) as client:
+                    secondary = ChatOpenAI(
+                        base_url=fallback.base_url,
+                        api_key=fallback.api_key.get_secret_value(),
+                        model=fallback.model,
+                        max_retries=0,
+                        temperature=0,
+                        http_client=client,
+                    )
+                    return adapter(secondary).decide(
+                        messages=messages, tools=tools, timeout_seconds=timeout_seconds
+                    )
+
+        rates = (
+            (fallback.input_usd_per_million, fallback.output_usd_per_million)
+            if fallback.input_usd_per_million is not None
+            and fallback.output_usd_per_million is not None
+            else None
+        )
+        provider = FallbackDecisionProvider(
+            provider,
+            SecondaryDecisionProvider(),
+            eligible=eligible_provider_failure,
+            primary_timeout=fallback.primary_timeout_seconds,
+            secondary_rates=rates,
+            logger=logger,
+        )
+    return AgentLoop(
+        provider=provider,
         dispatcher=build_tool_dispatcher(reader=reader),
         max_decisions=max_decisions,
         answer_mode=answer_mode,

@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from crewos.application.dtos.tool_execution_context import Permission
 from crewos.mcp_integration.server_configuration import McpServerConfigurations
+from crewos.third_party.llm.fallback_configuration import FallbackModelConfiguration
 from crewos.third_party.webhooks.http_delivery_config import HttpWebhookTenantConfig
 
 
@@ -24,6 +25,7 @@ class Settings(BaseSettings):
     AGENT_ACTION_DB_PATH: str = "var/agent_actions.sqlite3"
     AGENT_ACTION_APPROVAL_TTL: int = Field(default=900, ge=1, le=86400)
     AGENT_REVIEWER_KEYS: dict[str, SecretStr] = Field(default_factory=dict)
+    AGENT_FALLBACK_MODEL: FallbackModelConfiguration | None = None
     API_KEY: str = ""
 
     # Existing search remains BM25 until another retrieval mode is explicitly selected.
