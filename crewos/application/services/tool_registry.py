@@ -17,6 +17,8 @@ class ToolDefinition:
     argument_schema: type[BaseModel]
     handler: Callable[..., BaseModel]
     replay_safe: bool = False
+    approval_permission: str | None = None
+    approval_version: str = "1"
 
 
 class UnknownToolError(LookupError):
@@ -30,6 +32,12 @@ class ToolRegistry:
     def register(self, tool: ToolDefinition) -> None:
         if not tool.name or tool.name != tool.name.strip():
             raise ValueError("Tool name must be nonempty with no surrounding whitespace")
+        if tool.approval_permission is not None and (
+            not tool.approval_permission.strip()
+            or not tool.approval_version.strip()
+            or tool.replay_safe
+        ):
+            raise ValueError("Approval tools require permission, version and no automatic replay")
         if tool.name in self._tools:
             raise ValueError(f"Tool already registered: {tool.name}")
         self._tools[tool.name] = tool

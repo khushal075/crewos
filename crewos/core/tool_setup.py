@@ -91,4 +91,10 @@ def build_tool_dispatcher(
                 replay_safe=not isinstance(webhook_reader, McpWebhookDeliveryStatusReader),
             )
         )
-    return ToolDispatcher(registry)
+    approval_gate = None
+    if settings.AGENT_ACTIONS_ENABLED:
+        from crewos.core.approval_setup import build_approval_components
+
+        _, approval_gate, approval_tool = build_approval_components()
+        registry.register(approval_tool)
+    return ToolDispatcher(registry, approval_gate=approval_gate)

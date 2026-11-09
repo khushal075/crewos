@@ -54,6 +54,21 @@ def get_tool_execution_context(
     )
 
 
+def require_reviewer_token(tenant_id: str, presented: str | None) -> None:
+    """Require a separately provisioned reviewer key in addition to tenant authentication."""
+    reviewer = settings.AGENT_REVIEWER_KEYS.get(tenant_id)
+    tenant_key = settings.TENANT_API_KEYS.get(tenant_id)
+    value = reviewer.get_secret_value().encode() if reviewer else b""
+    if (
+        not presented
+        or not value
+        or tenant_key is None
+        or compare_digest(value, tenant_key.get_secret_value().encode())
+        or not compare_digest(value, presented.encode())
+    ):
+        raise HTTPException(403, "Reviewer authentication denied")
+
+
 def set_tenant(tenant_id: str) -> None:
     _current_tenant.set(tenant_id)
 

@@ -141,6 +141,7 @@ def public_record(record):
         "result": record["result"],
         "error_code": record["error"],
         "decisions": record["checkpoint"].get("decisions", 0),
+        "approval_ids": record["checkpoint"].get("approval_ids", []),
         "reserved_tokens": record["checkpoint"].get("reserved_tokens", 0),
         "reported_input_tokens": record["checkpoint"].get("reported_input_tokens"),
         "reported_output_tokens": record["checkpoint"].get("reported_output_tokens"),

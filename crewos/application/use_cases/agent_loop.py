@@ -45,6 +45,7 @@ from crewos.application.services.execution_control import (
 from crewos.application.interfaces.run_store import RunCancelled
 from crewos.application.services.tool_registry import UnknownToolError
 from crewos.application.services.decision_errors import DecisionResponseError, DecisionRefusedError
+from crewos.application.services.action_approval import ApprovalRequested
 from crewos.utils.retry import is_retryable
 
 
@@ -392,6 +393,13 @@ class AgentLoop:
                     )
                     checkpoint(history)
                     continue
+                if isinstance(result, ApprovalRequested):
+                    control.persist(
+                        approval_ids=[
+                            *control.state.get("approval_ids", []),
+                            str(result.approval_id),
+                        ]
+                    )
                 if decision.name == "search_documents" and isinstance(result, RetrievalResult):
                     document_search_completed = True
                     if self._answer_mode == "document":
