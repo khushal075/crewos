@@ -1,1 +1,7 @@
-# Scaffold only. No executable image build instructions yet.
+FROM python:3.12-slim
+WORKDIR /app
+COPY pyproject.toml .
+COPY src ./src
+RUN pip install --no-cache-dir .
+USER 65532:65532
+ENTRYPOINT ["webhook-mcp-server"]

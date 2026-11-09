@@ -1,1 +1,16 @@
-# Packaging scaffold only. Build backend and dependencies are not configured.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crewos-webhook-mcp-server"
+version = "0.1.0"
+description = "Read-only reference webhook status server over MCP stdio"
+requires-python = ">=3.11"
+dependencies = ["mcp==1.26.0"]
+
+[project.scripts]
+webhook-mcp-server = "webhook_mcp_server.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
