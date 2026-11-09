@@ -2488,3 +2488,19 @@ vendor is needed. The independently packaged reference server is under
 
 See the [step-by-step verification](docs/evaluation/mcp-integration-verification.md)
 and [architecture and opt-in configuration](docs/architecture/mcp-integration.md#runtime-wiring).
+
+
+For an existing MCP endpoint, the webhook reader also supports
+[Streamable HTTP configuration](docs/architecture/mcp-integration.md#streamable-http-transport)
+with an operator-provisioned tenant bearer token. Local stdio remains supported.
+
+### Agent approvals, provider fallback and reviewed feedback
+
+The agent can propose an opt-in incident note for human review. The application
+records its exact arguments; an authorized reviewer approves the action and an
+explicit execution request consumes that approval once. Model decisions can
+fail over to a configured secondary provider within run budgets. Reviewed
+completed runs can be compared with candidate outputs offline.
+
+See [configuration and request flows](docs/architecture/agent-operational-controls.md)
+and the [isolated Docker deployment verification](docs/evaluation/deployment-verification.md).

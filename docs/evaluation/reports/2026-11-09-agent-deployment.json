@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "run_id": "d2845082-fb49-4967-90fb-306a56b82237",
+  "checks": [
+    "api_worker_redis_run",
+    "provider_fallback_to_scripted_secondary",
+    "approval_before_mutation",
+    "approved_action_executed_once",
+    "feedback_case_replayed",
+    "authenticated_worker_metrics",
+    "run_id_correlated_in_api_and_worker_logs"
+  ]
+}

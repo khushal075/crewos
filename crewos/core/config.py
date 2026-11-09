@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # LLM
     LLM_BASE_URL: str = ""
     LLM_MODEL: str = "llama3"
+    AGENT_METRICS_TOKEN: SecretStr | None = None
     AGENT_FEEDBACK_ENABLED: bool = False
     AGENT_FEEDBACK_DB_PATH: str = "var/agent_feedback.sqlite3"
     AGENT_ACTIONS_ENABLED: bool = False

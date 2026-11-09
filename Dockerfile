@@ -10,7 +10,8 @@ COPY crewos ./crewos
 COPY README.md ./
 RUN poetry install --only-root --no-interaction --no-ansi \
     && useradd --create-home crewos \
-    && mkdir -p /app/var && chown crewos:crewos /app/var && chmod 700 /app/var
+    && mkdir -p /app/var /app/metrics \
+    && chown crewos:crewos /app/var /app/metrics && chmod 700 /app/var /app/metrics
 USER crewos
 EXPOSE 8000
 HEALTHCHECK CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"
