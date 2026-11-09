@@ -14,7 +14,9 @@ setuptools = "^68.0.0"
 langchain-openai = "^0.1.7"
 langchain-core = "^0.1.53"
 fastapi = "^0.110.0"
-uvicorn = { extras = ["standard"], version = "^0.27.0" }
+uvicorn = { extras = ["standard"], version = ">=0.31.1,<1" }
+
+mcp = "1.26.0"
 
 # --- Async / Workers ---
 celery = "^5.3.6"
