@@ -39,3 +39,10 @@ The [recorded demo report](reports/2026-11-09-mcp-webhook.json) passed all five
 checks. The reference Docker image was also built locally and tested through
 the same MCP reader using attached stdio with container networking disabled.
 The reader returned the expected observation and the container exited.
+
+
+Run `poetry run pytest tests/mcp_integration/test_streamable_http.py -q` to
+verify the HTTP transport separately. These tests use a real loopback listener,
+require a pre-provisioned test bearer token, and check that redirects are not
+followed and stateful sessions are terminated. No external tenant or OAuth
+authorization server is used.

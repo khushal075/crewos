@@ -1,15 +1,17 @@
-"""MCP Python SDK adapter for trusted local stdio executables."""
+"""MCP Python SDK adapter for trusted stdio and Streamable HTTP endpoints."""
 
 import asyncio
 import json
 import math
 import os
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from time import monotonic
 
+import httpx
 from mcp import ClientSession, StdioServerParameters, stdio_client
 from mcp import types
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
 
 from crewos.mcp_integration.contracts import (
@@ -19,7 +21,10 @@ from crewos.mcp_integration.contracts import (
     McpToolDescription,
 )
 from crewos.mcp_integration.mcp_client import McpConnectionError, McpProtocolError
-from crewos.mcp_integration.server_configuration import McpServerConfiguration
+from crewos.mcp_integration.server_configuration import (
+    McpServerConfiguration,
+    McpStdioTransport,
+)
 
 
 @contextmanager
@@ -150,17 +155,44 @@ class SdkMcpClient:
             raise
 
 
-class SdkMcpClientFactory:
-    async def connect(
-        self, configuration: McpServerConfiguration, *, timeout_seconds: float
-    ) -> SdkMcpClient:
-        transport = configuration.transport
+@asynccontextmanager
+async def _open_session(configuration: McpServerConfiguration) -> AsyncIterator[ClientSession]:
+    transport = configuration.transport
+    if isinstance(transport, McpStdioTransport):
         params = StdioServerParameters(
             command=transport.command,
             args=list(transport.args),
             cwd=transport.cwd,
             env={name: secret.get_secret_value() for name, secret in transport.environment.items()},
         )
+        with open(os.devnull, "w") as stderr:
+            async with stdio_client(params, errlog=stderr) as (reader, writer):
+                async with ClientSession(reader, writer) as session:
+                    yield session
+        return
+
+    # Fixed endpoint and credentials from operator configuration. No environment
+    # proxies, redirects or transport retries that could send a call elsewhere.
+    async with httpx.AsyncClient(
+        headers={"Authorization": f"Bearer {transport.bearer_token.get_secret_value()}"},
+        timeout=configuration.timeout_seconds,
+        follow_redirects=False,
+        trust_env=False,
+        limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+    ) as client:
+        async with streamable_http_client(transport.url, http_client=client) as (
+            reader,
+            writer,
+            _,
+        ):
+            async with ClientSession(reader, writer) as session:
+                yield session
+
+
+class SdkMcpClientFactory:
+    async def connect(
+        self, configuration: McpServerConfiguration, *, timeout_seconds: float
+    ) -> SdkMcpClient:
         loop = asyncio.get_running_loop()
         ready: asyncio.Future[ClientSession] = loop.create_future()
         stop = asyncio.Event()
@@ -169,16 +201,12 @@ class SdkMcpClientFactory:
         async def own_session() -> None:
             # AnyIO task groups must be entered and exited in this same task.
             try:
-                with open(os.devnull, "w") as stderr:
-                    async with stdio_client(params, errlog=stderr) as streams:
-                        async with ClientSession(*streams) as session:
-                            async with asyncio.timeout_at(
-                                loop.time() + max(0, deadline - monotonic())
-                            ):
-                                await session.initialize()
-                            if not ready.done():
-                                ready.set_result(session)
-                            await stop.wait()
+                async with _open_session(configuration) as session:
+                    async with asyncio.timeout_at(loop.time() + max(0, deadline - monotonic())):
+                        await session.initialize()
+                    if not ready.done():
+                        ready.set_result(session)
+                    await stop.wait()
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -187,7 +215,7 @@ class SdkMcpClientFactory:
                 elif not ready.cancelled():
                     raise McpConnectionError("MCP SDK session failed") from None
 
-        owner = asyncio.create_task(own_session(), name="crewos-mcp-stdio-owner")
+        owner = asyncio.create_task(own_session(), name="crewos-mcp-session-owner")
         try:
             async with asyncio.timeout(timeout_seconds):
                 session = await ready

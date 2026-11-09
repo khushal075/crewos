@@ -1,7 +1,9 @@
 """Trusted operator configuration, never accepted from model/server descriptions."""
 
+import re
 from pathlib import Path
 from typing import Annotated, Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import (
     BaseModel,
@@ -34,7 +36,7 @@ McpProcessArgument = Annotated[str, StringConstraints(strict=True, max_length=20
 class McpStdioTransport(BaseModel):
     """Local executable and literal arguments; no process is started by this model.
 
-    'stdio' means a future client exchanges protocol messages through a child
+    'stdio' means a client exchanges protocol messages through a child
     process's stdin/stdout. Running configured executables requires operator trust.
     """
 
@@ -71,6 +73,51 @@ class McpStdioTransport(BaseModel):
         return environment
 
 
+class McpStreamableHttpTransport(BaseModel):
+    """Trusted MCP endpoint and a pre-provisioned tenant credential."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+
+    kind: Literal["streamable_http"]
+    url: str = Field(strict=True, min_length=1, max_length=2048)
+    bearer_token: SecretStr
+
+    @field_validator("url")
+    @classmethod
+    def valid_endpoint(cls, value: str) -> str:
+        if any(ord(char) <= 32 or ord(char) >= 127 for char in value) or any(
+            char in value for char in "\\?#"
+        ):
+            raise ValueError("Invalid MCP HTTP endpoint")
+        try:
+            parts = urlsplit(value)
+            port = parts.port
+        except ValueError:
+            raise ValueError("Invalid MCP HTTP endpoint") from None
+        if (
+            not parts.hostname
+            or "%" in parts.netloc
+            or parts.username is not None
+            or parts.password is not None
+            or port == 0
+            or not parts.path.startswith("/")
+            or (
+                parts.scheme != "https"
+                and not (parts.scheme == "http" and parts.hostname in {"127.0.0.1", "::1"})
+            )
+        ):
+            raise ValueError("MCP HTTP requires an HTTPS endpoint or literal loopback HTTP")
+        return value
+
+    @field_validator("bearer_token")
+    @classmethod
+    def valid_token(cls, token: SecretStr) -> SecretStr:
+        value = token.get_secret_value()
+        if len(value) > 4096 or not re.fullmatch(r"[A-Za-z0-9._~+/-]+=*", value):
+            raise ValueError("Invalid MCP bearer credential")
+        return token
+
+
 class ApprovedMcpTool(BaseModel):
     """An operator's explicit mapping, not a grant derived from discovery metadata."""
 
@@ -83,7 +130,7 @@ class ApprovedMcpTool(BaseModel):
 
 
 class McpServerConfiguration(BaseModel):
-    """A tenant-scoped local server definition; defaults expose no tools.
+    """A tenant-scoped server definition; defaults expose no tools.
 
     This does not establish authenticated identity or enforce permissions. Only
     trusted application configuration should construct/use it for connections.
@@ -93,7 +140,7 @@ class McpServerConfiguration(BaseModel):
 
     server_id: McpConfigurationId
     tenant_id: McpConfigurationId
-    transport: McpStdioTransport
+    transport: McpStdioTransport | McpStreamableHttpTransport
     enabled: bool = Field(default=False, strict=True)
     allowed_tools: tuple[ApprovedMcpTool, ...] = Field(default=(), max_length=16)
     timeout_seconds: float = Field(default=5, strict=True, gt=0, le=30, allow_inf_nan=False)

@@ -1,4 +1,4 @@
-"""MCP integration contracts; client interface; transport execution remains unimplemented."""
+"""MCP integration contracts, client interface and trusted server configuration."""
 
 from crewos.mcp_integration.contracts import (
     McpToolDescription,
@@ -17,6 +17,7 @@ from crewos.mcp_integration.mcp_client import (
 from crewos.mcp_integration.server_configuration import (
     ApprovedMcpTool,
     McpStdioTransport,
+    McpStreamableHttpTransport,
     McpServerConfiguration,
     McpServerConfigurations,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "McpToolCallResult",
     "ApprovedMcpTool",
     "McpStdioTransport",
+    "McpStreamableHttpTransport",
     "McpServerConfiguration",
     "McpServerConfigurations",
 ]

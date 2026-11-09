@@ -19,8 +19,9 @@ For this increment, only the known webhook tool is wired. CrewOS checks tenant
 scope, the configured name/permission mapping and pinned schemas before calling.
 MCP webhook calls are marked unsafe for automatic replay after an uncertain run.
 
-The demo trusts the configured executable and uses fixtures. Remote HTTP MCP,
-arbitrary tool registration, a shared pool and production process isolation are
-separate design work. The example can be packaged independently. A later repo
+The demo trusts the configured executable and uses fixtures. Streamable HTTP is
+also available for trusted endpoints with pre-provisioned tenant bearer tokens.
+OAuth flows, arbitrary tool registration, a shared pool and production process
+isolation are separate design work. The example can be packaged independently. A later repo
 refactor will preserve the in-process module option and define startup,
 configuration and Docker packaging for each service that can deploy separately.

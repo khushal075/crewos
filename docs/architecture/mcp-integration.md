@@ -1,6 +1,6 @@
 # MCP integration layout
 
-Status: the read-only webhook tool works end to end over local stdio MCP.
+Status: the read-only webhook tool works over local stdio and authenticated Streamable HTTP MCP.
 Configuration is opt-in. The reference server runs as an independent subprocess,
 and the scripted agent demo verifies both successful and rejected requests.
 
@@ -148,10 +148,11 @@ versus domain outcome and mutation/revalidation. See the verification walkthroug
 
 ## Trusted local-server configuration
 
-`server_configuration.py` defines four data-only models:
+`server_configuration.py` defines five data-only models:
 
 - `McpStdioTransport`: absolute executable path, literal argument tuple, optional
   absolute working directory and explicitly supplied environment values.
+- `McpStreamableHttpTransport`: fixed HTTP endpoint and redacted bearer credential.
 - `ApprovedMcpTool`: remote tool name, local alias, required CrewOS permission and
   operator-assigned replay safety (false by default).
 - `McpServerConfiguration`: server ID, tenant ID, transport, enable flag, timeout
@@ -159,8 +160,8 @@ versus domain outcome and mutation/revalidation. See the verification walkthroug
 - `McpServerConfigurations`: bounded set of server definitions; empty by default.
 
 `stdio` means the client starts a local child process and exchanges protocol
-messages through stdin/stdout. Only this transport is admitted initially. HTTP MCP
-configuration/authorization is not implemented by these models. Absolute paths are
+messages through stdin/stdout. Streamable HTTP instead connects to a configured
+endpoint without launching a child process. For stdio, absolute paths are
 validated syntactically using the host platform; existence/permissions are not
 checked and no process is started. Arguments remain individual strings, not a
 shell command. The configured executable may itself run arbitrary code, including a
@@ -290,7 +291,7 @@ flowchart LR
     D --> P{CrewOS permission}
     P -- Deny --> F[Stop without opening session]
     P -- Allow --> R[Select tenant server]
-    R --> S[SDK initializes stdio subprocess]
+    R --> S[SDK initializes stdio or HTTP session]
     S --> C[Discover and verify allowlist and schemas]
     C --> W[Call read-only webhook tool]
     W --> V[Validate tenant delivery and result]
@@ -323,3 +324,37 @@ automatically replay after an uncertain execution.
 See the [verification walkthrough](../evaluation/mcp-integration-verification.md)
 for commands, traces and coverage scope. Independent deployment of CrewOS's
 remaining modules is the subsequent repository refactor.
+
+
+## Streamable HTTP transport
+
+Select this transport by replacing a tenant server's `transport` block:
+
+```json
+{
+  "kind": "streamable_http",
+  "url": "https://mcp.example.com/mcp",
+  "bearer_token": "<provisioned-tenant-token>"
+}
+```
+
+Inject the real credential through trusted deployment configuration. This client
+uses TLS verification, disables redirects and environment proxies, and sends the
+credential only to the configured endpoint. Plain HTTP is admitted only for
+literal IPv4/IPv6 loopback tests. URL credentials, query strings and fragments
+are rejected. The endpoint must implement MCP Streamable HTTP and accept the
+provisioned bearer credential. OAuth discovery, token acquisition and refresh are
+outside this increment.
+
+CrewOS does not derive endpoints or credentials from model arguments or discovered
+metadata. The same application permission gate, pinned schemas, tenant/result
+checks and session budgets apply. The SDK attempts to terminate a stateful HTTP
+session when closing. The SDK may resume response streams with GET; CrewOS
+does not replay a tool invocation after an uncertain POST. This is not a
+general-purpose proxy or network egress
+policy; operators still control approved endpoints and deployment network access.
+
+The tests exercise the pinned SDK against a real authenticated loopback server.
+They cover successful lookup, credential rejection, session termination, and
+redirect refusal. The Docker reference example remains a stdio server; the HTTP
+test harness wraps the same tool for interoperability testing.
