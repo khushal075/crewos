@@ -1,0 +1,14 @@
+{
+  "candidates": 512,
+  "dimensions": 768,
+  "samples": 20,
+  "baseline": {
+    "p50_ms": 96.35,
+    "p95_ms": 96.76
+  },
+  "prepared_exact": {
+    "p50_ms": 55.18,
+    "p95_ms": 57.03
+  },
+  "scope": "In-memory exact scoring and ranking only; no embedding, SQLite or network."
+}

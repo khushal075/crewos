@@ -103,6 +103,12 @@ class VectorRetriever:
         query = self._indexer.embed_texts(
             (request.query,), prefix=self._indexer.space.query_prefix, budget=budget
         )
+        # Keep custom similarity implementations on their existing score contract.
+        prepared_score = (
+            self._similarity.prepare(query.vectors[0])
+            if type(self._similarity) is CosineSimilarity
+            else None
+        )
         candidates = []
         remaining_bytes = self._max_embedding_bytes
         for document in documents:
@@ -121,7 +127,11 @@ class VectorRetriever:
             if remaining_bytes < 0:
                 raise RetrievalCapacityExceeded("Vector corpus exceeds embedding byte admission")
             for record in records:
-                score = self._similarity.score(left=query.vectors[0], right=record.vector)
+                score = (
+                    prepared_score(record.vector)
+                    if prepared_score is not None
+                    else self._similarity.score(left=query.vectors[0], right=record.vector)
+                )
                 if type(score) not in (int, float) or not isfinite(score):
                     raise RetrievalResultError("Similarity returned an invalid score")
                 candidates.append((score, record.passage))

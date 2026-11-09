@@ -1,5 +1,6 @@
 """Cosine comparison with bounded validation and overflow-safe normalization."""
 
+from collections.abc import Callable
 from math import fsum, hypot, isfinite
 
 
@@ -28,10 +29,17 @@ def _unit_vector(vector: tuple[float, ...]) -> tuple[float, ...]:
 class CosineSimilarity:
     def score(self, *, left: tuple[float, ...], right: tuple[float, ...]) -> float:
         """Compare direction, ignoring positive magnitude; result lies in [-1, 1]."""
-        left_unit = _unit_vector(left)
-        right_unit = _unit_vector(right)
-        if len(left_unit) != len(right_unit):
-            raise ValueError("Vector dimensions must match")
-        score = fsum(a * b for a, b in zip(left_unit, right_unit))
-        # Floating-point rounding can otherwise put a unit-vector dot product just outside the range.
-        return max(-1.0, min(1.0, score))
+        return self.prepare(left)(right)
+
+    def prepare(self, query: tuple[float, ...]) -> Callable[[tuple[float, ...]], float]:
+        """Normalize the query once for a batch of exact comparisons."""
+        left_unit = _unit_vector(query)
+
+        def compare(candidate: tuple[float, ...]) -> float:
+            right_unit = _unit_vector(candidate)
+            if len(left_unit) != len(right_unit):
+                raise ValueError("Vector dimensions must match")
+            score = fsum(a * b for a, b in zip(left_unit, right_unit))
+            return max(-1.0, min(1.0, score))
+
+        return compare
