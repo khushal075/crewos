@@ -16,6 +16,7 @@ from crewos.application.use_cases.search_documents import SearchDocumentsHandler
 from crewos.core.retrieval_setup import build_agent_retrieval
 from crewos.retrieval import RetrievalFacade, RetrievalRequest
 from crewos.infrastructure.logging import get_logger
+from crewos.mcp_integration.adapters.webhook_delivery_reader import McpWebhookDeliveryStatusReader
 
 logger = get_logger("crewos.policy")
 
@@ -61,6 +62,11 @@ def build_tool_dispatcher(
     )
     from crewos.core.config import settings
 
+    if webhook_reader is None and settings.MCP_WEBHOOK_ENABLED:
+        from crewos.core.mcp_setup import build_mcp_webhook_reader
+
+        webhook_reader = build_mcp_webhook_reader()
+
     if webhook_reader is not None or settings.WEBHOOK_INTEGRATION_ENABLED:
         if webhook_reader is None:
             from crewos.core.webhook_setup import ConfiguredWebhookDeliveryStatusReader
@@ -82,7 +88,7 @@ def build_tool_dispatcher(
                 ),
                 argument_schema=GetWebhookDeliveryStatusInput,
                 handler=webhook_handler.execute,
-                replay_safe=True,
+                replay_safe=not isinstance(webhook_reader, McpWebhookDeliveryStatusReader),
             )
         )
     return ToolDispatcher(registry)

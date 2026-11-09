@@ -3,6 +3,7 @@ from pydantic import ConfigDict, Field, SecretStr, StringConstraints, model_vali
 from decimal import Decimal
 from typing import Annotated, Literal
 from crewos.application.dtos.tool_execution_context import Permission
+from crewos.mcp_integration.server_configuration import McpServerConfigurations
 from crewos.third_party.webhooks.http_delivery_config import HttpWebhookTenantConfig
 
 
@@ -44,6 +45,8 @@ class Settings(BaseSettings):
 
     # Read-only external webhook integration, unavailable until explicitly enabled.
     WEBHOOK_INTEGRATION_ENABLED: bool = False
+    MCP_WEBHOOK_ENABLED: bool = False
+    MCP_WEBHOOK_SERVERS: McpServerConfigurations = Field(default_factory=McpServerConfigurations)
     WEBHOOK_HTTP_CONNECTIONS: dict[
         Annotated[str, StringConstraints(strict=True, pattern=r"^[A-Za-z0-9_-]{1,64}$")],
         HttpWebhookTenantConfig,
