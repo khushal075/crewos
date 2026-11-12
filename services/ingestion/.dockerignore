@@ -1,0 +1,11 @@
+# Only the packaging metadata and Python source are needed to build the image.
+**
+!pyproject.toml
+!src/
+!src/**
+**/__pycache__/
+**/*.pyc
+**/*.egg-info/
+**/.env*
+**/*.db
+**/*.sqlite*
