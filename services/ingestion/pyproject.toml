@@ -7,7 +7,12 @@ name = "crewos-ingestion"
 version = "0.1.0"
 description = "Source ingestion for CrewOS"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.6,<3"]
+dependencies = [
+    "pydantic>=2.6,<3",
+    "fastapi>=0.110,<1",
+    "uvicorn>=0.31.1,<1",
+    "python-dotenv>=1,<2",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10"]
@@ -19,3 +24,7 @@ namespaces = false
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+
+[project.scripts]
+crewos_ingestion = "crewos_ingestion.cli:main"
