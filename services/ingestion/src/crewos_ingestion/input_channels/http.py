@@ -3,25 +3,39 @@ HTTP input channel for plain text source registration.
 """
 
 from hmac import compare_digest
-from typing import Annotated
+from typing import Annotated, TypeVar
 from fastapi import APIRouter, HTTPException, Header, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPBearer
-from pydantic import UUID4, ValidationError
+from pydantic import UUID4, BaseModel, ValidationError
 
 from crewos_ingestion.contracts.context_contracts.caller_context import CallerContext
 from crewos_ingestion.contracts.input_contracts.source_registration import SourceSubmission
 from crewos_ingestion.contracts.output_contracts.source_registration import SourceAcceptanceReceipt
 
 from crewos_ingestion.lifecycle.registration.submit_source import SubmitSource
-from crewos_ingestion.storage.source_store import SourceNotFound, SourceRegistrationConflict
+from crewos_ingestion.storage.source_store import (
+    SourceNotFound,
+    SourceRegistrationConflict,
+    SourceVersionConflict,
+)
 from crewos_ingestion.submission_checks.checks import SourceSubmissionDenied
 
-from crewos_ingestion.contracts.input_contracts.source_lifecycle import SourceReadRequest
-from crewos_ingestion.contracts.output_contracts.source_lifecycle import SourceReadResult
+from crewos_ingestion.contracts.input_contracts.source_lifecycle import (
+    SourceReadRequest,
+    SourceUpdateBody,
+    SourceUpdateRequest,
+)
+from crewos_ingestion.contracts.output_contracts.source_lifecycle import (
+    SourceReadResult,
+    SourceUpdateReceipt,
+)
+from crewos_ingestion.domain.source import SourceVersionLimitReached
+from crewos_ingestion.lifecycle.update_source import UpdateSource, SourceUpdateDenied
 from crewos_ingestion.lifecycle.read_source import ReadSource, SourceReadDenied
 
 MAX_REQUEST_BYTES = 8_000_000
+_Body = TypeVar("_Body", bound=BaseModel)
 
 
 class SourceHTTPChannel:
@@ -34,11 +48,13 @@ class SourceHTTPChannel:
         *,
         submit_source: SubmitSource,
         read_source: ReadSource,
+        update_source: UpdateSource,
         caller_context: CallerContext,
         api_token: str,
     ) -> None:
         self._submit_source = submit_source
         self._read_source = read_source
+        self._update_source = update_source
         self._caller_context = caller_context
         self._expected_token = api_token.encode("ascii")
         self._bearer = HTTPBearer(auto_error=False)
@@ -56,6 +72,13 @@ class SourceHTTPChannel:
             response_model=SourceReadResult,
         )
 
+        self.router.add_api_route(
+            "/sources/{source_id}",
+            self.replace_source,
+            methods=["PUT"],
+            response_model=SourceUpdateReceipt,
+        )
+
     async def _authenticate(self, request: Request) -> CallerContext:
         credentials = await self._bearer(request)
         if credentials is None or not compare_digest(
@@ -68,7 +91,7 @@ class SourceHTTPChannel:
             )
         return self._caller_context
 
-    async def _read_submission(self, request: Request) -> SourceSubmission:
+    async def _read_body(self, request: Request, model: type[_Body]) -> _Body:
         media_type = request.headers.get("content-type", "").split(";", 1)[0]
         if media_type.lower() != "application/json":
             raise HTTPException(status_code=415, detail="Expected application/json")
@@ -79,7 +102,7 @@ class SourceHTTPChannel:
             body.extend(chunk)
 
         try:
-            return SourceSubmission.model_validate_json(body)
+            return model.model_validate_json(body)
         except ValidationError:
             raise HTTPException(status_code=422, detail="Invalid source submission") from None
 
@@ -92,7 +115,7 @@ class SourceHTTPChannel:
         ] = None,
     ) -> SourceAcceptanceReceipt:
         context = await self._authenticate(request)
-        submission = await self._read_submission(request)
+        submission = await self._read_body(request, SourceSubmission)
 
         try:
             return await run_in_threadpool(
@@ -129,3 +152,18 @@ class SourceHTTPChannel:
 
         except SourceNotFound:
             raise HTTPException(status_code=404, detail="Source version is unavailable") from None
+
+    async def replace_source(self, request: Request, source_id: UUID4) -> SourceUpdateReceipt:
+        context = await self._authenticate(request)
+        body = await self._read_body(request, SourceUpdateBody)
+        update_request = SourceUpdateRequest(source_id=source_id, **body.model_dump())
+        try:
+            return await run_in_threadpool(
+                self._update_source.execute, request=update_request, context=context
+            )
+        except SourceUpdateDenied:
+            raise HTTPException(status_code=403, detail="Source update denied") from None
+        except SourceNotFound:
+            raise HTTPException(status_code=404, detail="Source version is unavailable") from None
+        except (SourceVersionConflict, SourceVersionLimitReached) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None

@@ -7,8 +7,13 @@ from threading import Barrier
 
 import pytest
 
+from crewos_ingestion.contracts.input_contracts.source_lifecycle import SourceUpdateRequest
 from crewos_ingestion.contracts.input_contracts.source_registration import SourceSubmission
-from crewos_ingestion.storage.source_store import SourceNotFound, SourceRegistrationConflict
+from crewos_ingestion.storage.source_store import (
+    SourceNotFound,
+    SourceRegistrationConflict,
+    SourceVersionConflict,
+)
 from crewos_ingestion.storage.sqlite_source_store import SQLiteSourceStore
 
 
@@ -164,3 +169,29 @@ def test_read_hides_other_tenant_sources_and_missing_versions(database, submissi
 
     with pytest.raises(SourceNotFound):
         store.read(tenant_id="tenant_a", source_id=receipt.source_id, version=2)
+
+
+def test_concurrent_updates_from_same_version_only_commit_one(database, submission):
+    _, store = database
+    receipt = store.register(tenant_id="tenant_a", submission=submission)
+    ready = Barrier(2, timeout=5)
+
+    def update(content):
+        request = SourceUpdateRequest(
+            source_id=receipt.source_id, expected_version=1, title=submission.title, content=content
+        )
+        ready.wait()
+        try:
+            return store.update(tenant_id="tenant_a", request=request)
+        except SourceVersionConflict:
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(update, ["First edit", "Second edit"]))
+    winners = [result for result in outcomes if result is not None]
+    assert len(winners) == 1 and winners[0].version == 2
+    assert store.read(tenant_id="tenant_a", source_id=receipt.source_id) == winners[0]
+    assert (
+        store.read(tenant_id="tenant_a", source_id=receipt.source_id, version=1).content
+        == submission.content
+    )

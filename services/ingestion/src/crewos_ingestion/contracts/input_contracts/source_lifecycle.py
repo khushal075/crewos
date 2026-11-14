@@ -20,13 +20,18 @@ class SourceReadRequest(BaseModel):
     version: SourceVersion | None = None
 
 
-class SourceUpdateRequest(SourceSubmission):
+class SourceUpdateBody(SourceSubmission):
+    """Replacement content and version precondition; HTTP supplies the ID separately."""
+
+    expected_version: SourceVersion
+
+
+class SourceUpdateRequest(SourceUpdateBody):
     """
     Replace the source content if its latest version matches the caller's.
     """
 
     source_id: UUID4
-    expected_version: SourceVersion
 
 
 class SourceDeleteRequest(BaseModel):

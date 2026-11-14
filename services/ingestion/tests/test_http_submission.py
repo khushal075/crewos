@@ -126,3 +126,31 @@ def test_read_requires_permission_and_hides_other_tenants(client, monkeypatch):
     monkeypatch.setenv("INGESTION_PERMISSIONS", "source.read")
     with TestClient(create_app()) as other:
         assert other.get(path, headers=_AUTH).status_code == 404
+
+
+def test_update_preserves_history_and_rejects_stale_or_cross_tenant_requests(client, monkeypatch):
+    receipt = client.post("/sources", json=_BODY, headers=_AUTH).json()
+    path = "/sources/" + receipt["source_id"]
+    body = {**_BODY, "expected_version": 1, "content": "Retry later."}
+
+    assert client.put(path, json=body, headers=_AUTH).status_code == 403
+    monkeypatch.setenv("INGESTION_PERMISSIONS", "source.read,source.update")
+    with TestClient(create_app()) as editor:
+        assert (
+            editor.put(path, json={**body, "expected_version": "1"}, headers=_AUTH).status_code
+            == 422
+        )
+        updated = editor.put(path, json=body, headers=_AUTH)
+        assert updated.status_code == 200
+        assert updated.json() == {
+            "source_id": receipt["source_id"],
+            "version": 2,
+            "status": "updated",
+        }
+        assert editor.get(path, headers=_AUTH).json()["content"] == body["content"]
+        assert editor.get(path + "?version=1", headers=_AUTH).json()["content"] == _BODY["content"]
+        assert editor.put(path, json=body, headers=_AUTH).status_code == 409
+
+    monkeypatch.setenv("INGESTION_TENANT_ID", "tenant_b")
+    with TestClient(create_app()) as other:
+        assert other.put(path, json=body, headers=_AUTH).status_code == 404

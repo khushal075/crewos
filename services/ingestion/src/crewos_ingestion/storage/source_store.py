@@ -6,6 +6,7 @@ from typing import Protocol
 from uuid import UUID
 
 from crewos_ingestion.contracts.context_contracts.caller_context import TenantId
+from crewos_ingestion.contracts.input_contracts.source_lifecycle import SourceUpdateRequest
 from crewos_ingestion.contracts.input_contracts.source_registration import SourceSubmission
 from crewos_ingestion.contracts.output_contracts.source_registration import SourceAcceptanceReceipt
 from crewos_ingestion.domain.source import StoredSourceVersion
@@ -21,6 +22,10 @@ class SourceRegistrationConflict(RuntimeError):
     """
     The tenant already used this retry key for a different submission.
     """
+
+
+class SourceVersionConflict(RuntimeError):
+    """The expected revision does not match the latest revision."""
 
 
 class SourceStore(Protocol):
@@ -103,4 +108,8 @@ class SourceStore(Protocol):
 
         Raise SourceNotFound if the source of revision is unavailable.
         """
+        ...
+
+    def update(self, *, tenant_id: TenantId, request: SourceUpdateRequest) -> StoredSourceVersion:
+        """Append a revision only if the expected version is still current."""
         ...

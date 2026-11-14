@@ -7,10 +7,15 @@ from contextlib import closing
 from pathlib import Path
 from uuid import UUID, uuid4
 from crewos_ingestion.contracts.context_contracts.caller_context import TenantId
+from crewos_ingestion.contracts.input_contracts.source_lifecycle import SourceUpdateRequest
 from crewos_ingestion.contracts.input_contracts.source_registration import SourceSubmission
 from crewos_ingestion.contracts.output_contracts.source_registration import SourceAcceptanceReceipt
 from crewos_ingestion.domain.source import StoredSourceVersion
-from crewos_ingestion.storage.source_store import SourceNotFound, SourceRegistrationConflict
+from crewos_ingestion.storage.source_store import (
+    SourceNotFound,
+    SourceRegistrationConflict,
+    SourceVersionConflict,
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS source_versions (
@@ -161,6 +166,19 @@ class SQLiteSourceStore:
         source_id: UUID,
         version: int | None = None,
     ) -> StoredSourceVersion:
+        with closing(self._connect()) as db:
+            return self._read_revision(
+                db, tenant_id=tenant_id, source_id=source_id, version=version
+            )
+
+    def _read_revision(
+        self,
+        db: sqlite3.Connection,
+        *,
+        tenant_id: TenantId,
+        source_id: UUID,
+        version: int | None = None,
+    ) -> StoredSourceVersion:
         query = """
         SELECT
             tenant_id, source_id, version, title, content, source_reference
@@ -177,10 +195,35 @@ class SQLiteSourceStore:
 
         query += " ORDER BY version DESC LIMIT 1"
 
-        with closing(self._connect()) as db:
-            row = db.execute(query, params).fetchone()
+        row = db.execute(query, params).fetchone()
 
         if row is None:
             raise SourceNotFound("Source revision is unavailable.")
 
         return StoredSourceVersion.model_validate(dict(row))
+
+    def update(self, *, tenant_id: TenantId, request: SourceUpdateRequest) -> StoredSourceVersion:
+        with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            current = self._read_revision(db, tenant_id=tenant_id, source_id=request.source_id)
+            if current.version != request.expected_version:
+                raise SourceVersionConflict("Expected source version is stale")
+            revision = current.next_revision(
+                title=request.title,
+                content=request.content,
+                source_reference=request.source_reference,
+            )
+            db.execute(
+                """INSERT INTO source_versions
+                (tenant_id, source_id, version, title, content, source_reference)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    revision.tenant_id,
+                    str(revision.source_id),
+                    revision.version,
+                    revision.title,
+                    revision.content,
+                    revision.source_reference,
+                ),
+            )
+        return revision
