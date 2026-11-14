@@ -8,7 +8,7 @@ from threading import Barrier
 import pytest
 
 from crewos_ingestion.contracts.input_contracts.source_registration import SourceSubmission
-from crewos_ingestion.storage.source_store import SourceRegistrationConflict
+from crewos_ingestion.storage.source_store import SourceNotFound, SourceRegistrationConflict
 from crewos_ingestion.storage.sqlite_source_store import SQLiteSourceStore
 
 
@@ -125,3 +125,42 @@ def test_failed_key_write_rolls_back_source_and_allows_retry(database, submissio
         db.execute("DROP TRIGGER reject_registration")
 
     assert store.register(**args).version == 1
+
+
+def test_read_returns_latest_or_explicit_revision(database, submission):
+    path, store = database
+    receipt = store.register(tenant_id="tenant_a", submission=submission)
+
+    # Seed a second revision directly; the update operation is not wired yet.
+    with closing(sqlite3.connect(path)) as db, db:
+        db.execute(
+            "INSERT INTO source_versions "
+            "(tenant_id, source_id, version, title, content, source_reference) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("tenant_a", str(receipt.source_id), 2, submission.title, "Retry later.", "ref-2"),
+        )
+
+    latest = store.read(tenant_id="tenant_a", source_id=receipt.source_id)
+    original = store.read(tenant_id="tenant_a", source_id=receipt.source_id, version=1)
+
+    assert (latest.source_id, latest.tenant_id) == (receipt.source_id, "tenant_a")
+    assert (latest.version, latest.content, latest.source_reference) == (2, "Retry later.", "ref-2")
+    assert (original.version, original.title, original.content) == (
+        1,
+        submission.title,
+        submission.content,
+    )
+
+
+def test_read_hides_other_tenant_sources_and_missing_versions(database, submission):
+    _, store = database
+    receipt = store.register(tenant_id="tenant_a", submission=submission)
+
+    with pytest.raises(SourceNotFound):
+        store.read(tenant_id="tenant_b", source_id=receipt.source_id)
+
+    with pytest.raises(SourceNotFound):
+        store.read(tenant_id="tenant_b", source_id=receipt.source_id, version=1)
+
+    with pytest.raises(SourceNotFound):
+        store.read(tenant_id="tenant_a", source_id=receipt.source_id, version=2)

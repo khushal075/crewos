@@ -1,20 +1,22 @@
 """
 SQLite storage for source registration and safe retries.
 """
+
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 from crewos_ingestion.contracts.context_contracts.caller_context import TenantId
 from crewos_ingestion.contracts.input_contracts.source_registration import SourceSubmission
 from crewos_ingestion.contracts.output_contracts.source_registration import SourceAcceptanceReceipt
-from crewos_ingestion.storage.source_store import SourceRegistrationConflict
+from crewos_ingestion.domain.source import StoredSourceVersion
+from crewos_ingestion.storage.source_store import SourceNotFound, SourceRegistrationConflict
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS source_versions (
     tenant_id TEXT NOT NULL,
-    source_id TEXT NOT NULL, 
-    version INTEGER NOT NULL CHECK (version >= 1), 
+    source_id TEXT NOT NULL,
+    version INTEGER NOT NULL CHECK (version >= 1),
     title TEXT NOT NULL,
     content TEXT NOT NULL,
     source_reference TEXT,
@@ -25,13 +27,14 @@ CREATE TABLE IF NOT EXISTS source_registrations (
     tenant_id TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
     source_id TEXT NOT NULL,
-    version INTEGER NOT NULL, 
+    version INTEGER NOT NULL,
     PRIMARY KEY (tenant_id, idempotency_key),
     FOREIGN KEY (tenant_id, source_id, version)
     REFERENCES source_versions (tenant_id, source_id, version)
 );
 
 """
+
 
 class SQLiteSourceStore:
     """
@@ -53,11 +56,11 @@ class SQLiteSourceStore:
         return db
 
     def register(
-            self,
-            *,
-            tenant_id: TenantId,
-            submission: SourceSubmission,
-            idempotency_key: str | None = None,
+        self,
+        *,
+        tenant_id: TenantId,
+        submission: SourceSubmission,
+        idempotency_key: str | None = None,
     ) -> SourceAcceptanceReceipt:
         """
         Create version 1 or return the receipt for an identical retry.
@@ -70,9 +73,7 @@ class SQLiteSourceStore:
             db.execute("BEGIN IMMEDIATE")
             if idempotency_key is not None:
                 existing = self._find_registration(
-                    db,
-                    tenant_id=tenant_id,
-                    idempotency_key=idempotency_key
+                    db, tenant_id=tenant_id, idempotency_key=idempotency_key
                 )
                 if existing is not None:
                     return self._receipt_for_retry(existing, submission)
@@ -90,7 +91,7 @@ class SQLiteSourceStore:
                     receipt.version,
                     submission.title,
                     submission.content,
-                    submission.source_reference
+                    submission.source_reference,
                 ),
             )
             if idempotency_key is not None:
@@ -100,41 +101,35 @@ class SQLiteSourceStore:
                         tenant_id, idempotency_key, source_id, version
                     ) VALUES (?, ?, ?, ?)
                     """,
-                    (
-                        tenant_id,
-                        idempotency_key,
-                        str(receipt.source_id),
-                        receipt.version
-                    ),
+                    (tenant_id, idempotency_key, str(receipt.source_id), receipt.version),
                 )
         return receipt
 
-
     def _find_registration(
-            self,
-            db: sqlite3.Connection,
-            *,
-            tenant_id: TenantId,
-            idempotency_key: str,
-    )-> sqlite3.Row | None:
+        self,
+        db: sqlite3.Connection,
+        *,
+        tenant_id: TenantId,
+        idempotency_key: str,
+    ) -> sqlite3.Row | None:
 
         return db.execute(
             """
-            SELECT 
-                s.source_id, 
-                s.version, 
-                s.title, 
-                s.content, 
+            SELECT
+                s.source_id,
+                s.version,
+                s.title,
+                s.content,
                 s.source_reference
             FROM
-                source_registrations AS r 
+                source_registrations AS r
             JOIN
-                source_versions AS s 
+                source_versions AS s
             ON
-                s.tenant_id = r.tenant_id 
+                s.tenant_id = r.tenant_id
             AND
                 s.source_id = r.source_id
-            AND 
+            AND
                 s.version == r.version
             WHERE
                 r.tenant_id = ? AND r.idempotency_key = ?
@@ -142,11 +137,8 @@ class SQLiteSourceStore:
             (tenant_id, idempotency_key),
         ).fetchone()
 
-
     def _receipt_for_retry(
-            self,
-            existing: sqlite3.Row,
-            submission: SourceSubmission
+        self, existing: sqlite3.Row, submission: SourceSubmission
     ) -> SourceAcceptanceReceipt:
         if (
             existing["title"] != submission.title
@@ -161,3 +153,34 @@ class SQLiteSourceStore:
             source_id=existing["source_id"],
             version=existing["version"],
         )
+
+    def read(
+        self,
+        *,
+        tenant_id: TenantId,
+        source_id: UUID,
+        version: int | None = None,
+    ) -> StoredSourceVersion:
+        query = """
+        SELECT
+            tenant_id, source_id, version, title, content, source_reference
+        FROM
+            source_versions
+        WHERE
+            tenant_id = ? AND source_id = ?
+        """
+        params: tuple[str | int, ...] = (tenant_id, str(source_id))
+
+        if version is not None:
+            query += " AND version = ?"
+            params += (version,)
+
+        query += " ORDER BY version DESC LIMIT 1"
+
+        with closing(self._connect()) as db:
+            row = db.execute(query, params).fetchone()
+
+        if row is None:
+            raise SourceNotFound("Source revision is unavailable.")
+
+        return StoredSourceVersion.model_validate(dict(row))

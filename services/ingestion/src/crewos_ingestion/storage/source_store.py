@@ -3,15 +3,25 @@ Storage interface for registering a source and handling submission retries.
 """
 
 from typing import Protocol
+from uuid import UUID
 
 from crewos_ingestion.contracts.context_contracts.caller_context import TenantId
 from crewos_ingestion.contracts.input_contracts.source_registration import SourceSubmission
 from crewos_ingestion.contracts.output_contracts.source_registration import SourceAcceptanceReceipt
+from crewos_ingestion.domain.source import StoredSourceVersion
+
+
+class SourceNotFound(LookupError):
+    """
+    NO Matching source version is available in this tenant.
+    """
+
 
 class SourceRegistrationConflict(RuntimeError):
     """
     The tenant already used this retry key for a different submission.
     """
+
 
 class SourceStore(Protocol):
     """
@@ -19,12 +29,11 @@ class SourceStore(Protocol):
     """
 
     def register(
-            self,
-            *,
-            tenant_id: TenantId,
-            submission: SourceSubmission,
-            idempotency_key: str | None = None,
-
+        self,
+        *,
+        tenant_id: TenantId,
+        submission: SourceSubmission,
+        idempotency_key: str | None = None,
     ) -> SourceAcceptanceReceipt:
         """
         Register a source at version 1 or return previously saved receipt.
@@ -80,4 +89,18 @@ class SourceStore(Protocol):
          The source and its key associated must commit together.
         """
 
+        ...
+
+    def read(
+        self,
+        *,
+        tenant_id: TenantId,
+        source_id: UUID,
+        version: int | None = None,
+    ) -> StoredSourceVersion:
+        """
+        Read the latest or requested revision within the tenant.
+
+        Raise SourceNotFound if the source of revision is unavailable.
+        """
         ...

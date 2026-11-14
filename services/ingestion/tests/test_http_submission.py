@@ -19,7 +19,7 @@ def database_path(tmp_path, monkeypatch):
     monkeypatch.setenv("INGESTION_DATABASE_PATH", str(path))
     monkeypatch.setenv("INGESTION_API_TOKEN", "ingestion-test-token")
     monkeypatch.setenv("INGESTION_TENANT_ID", "tenant_a")
-    monkeypatch.setenv("INGESTION_PERMISSIONS", "source.create")
+    monkeypatch.setenv("INGESTION_PERMISSIONS", "source.create,source.read")
     return path
 
 
@@ -100,3 +100,29 @@ def test_oversized_request_returns_413_before_json_parsing(client, monkeypatch):
     )
 
     assert response.status_code == 413
+
+
+def test_read_latest_and_exact_revision(client):
+    created = client.post("/sources", json=_BODY, headers=_AUTH)
+    path = "/sources/" + created.json()["source_id"]
+
+    latest = client.get(path, headers=_AUTH)
+    assert latest.status_code == 200
+    assert latest.json()["content"] == _BODY["content"]
+    assert client.get(path, params={"version": 1}, headers=_AUTH).json() == latest.json()
+    assert client.get(path, params={"version": 2}, headers=_AUTH).status_code == 404
+    assert client.get(path, params={"version": 0}, headers=_AUTH).status_code == 422
+    assert client.get(path).status_code == 401
+
+
+def test_read_requires_permission_and_hides_other_tenants(client, monkeypatch):
+    created = client.post("/sources", json=_BODY, headers=_AUTH)
+    path = "/sources/" + created.json()["source_id"]
+    monkeypatch.setenv("INGESTION_PERMISSIONS", "source.create")
+    with TestClient(create_app()) as denied:
+        assert denied.get(path, headers=_AUTH).status_code == 403
+
+    monkeypatch.setenv("INGESTION_TENANT_ID", "tenant_b")
+    monkeypatch.setenv("INGESTION_PERMISSIONS", "source.read")
+    with TestClient(create_app()) as other:
+        assert other.get(path, headers=_AUTH).status_code == 404

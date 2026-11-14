@@ -3,13 +3,15 @@ Assemble the standalone CrewOs ingestion application.
 """
 
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 
 from crewos_ingestion.contracts.context_contracts.caller_context import CallerContext
 from crewos_ingestion.input_channels.http import SourceHTTPChannel
 from crewos_ingestion.lifecycle.registration.submit_source import SubmitSource
+from crewos_ingestion.lifecycle.read_source import ReadSource
 from crewos_ingestion.storage.sqlite_source_store import SQLiteSourceStore
 from crewos_ingestion.submission_checks.checks import SubmissionChecks
+
 
 def create_app() -> FastAPI:
     """
@@ -42,6 +44,7 @@ def create_app() -> FastAPI:
 
     channel = SourceHTTPChannel(
         submit_source=submit_source,
+        read_source=ReadSource(store=store),
         caller_context=caller_context,
         api_token=token,
     )

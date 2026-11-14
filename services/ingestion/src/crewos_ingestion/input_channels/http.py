@@ -4,22 +4,25 @@ HTTP input channel for plain text source registration.
 
 from hmac import compare_digest
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, Header, Request
+from fastapi import APIRouter, HTTPException, Header, Query, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import ValidationError
+from fastapi.security import HTTPBearer
+from pydantic import UUID4, ValidationError
 
 from crewos_ingestion.contracts.context_contracts.caller_context import CallerContext
 from crewos_ingestion.contracts.input_contracts.source_registration import SourceSubmission
 from crewos_ingestion.contracts.output_contracts.source_registration import SourceAcceptanceReceipt
 
 from crewos_ingestion.lifecycle.registration.submit_source import SubmitSource
-from crewos_ingestion.storage.source_store import SourceRegistrationConflict
+from crewos_ingestion.storage.source_store import SourceNotFound, SourceRegistrationConflict
 from crewos_ingestion.submission_checks.checks import SourceSubmissionDenied
+
+from crewos_ingestion.contracts.input_contracts.source_lifecycle import SourceReadRequest
+from crewos_ingestion.contracts.output_contracts.source_lifecycle import SourceReadResult
+from crewos_ingestion.lifecycle.read_source import ReadSource, SourceReadDenied
 
 MAX_REQUEST_BYTES = 8_000_000
 
-bearer = HTTPBearer(auto_error=False)
 
 class SourceHTTPChannel:
     """
@@ -30,12 +33,14 @@ class SourceHTTPChannel:
         self,
         *,
         submit_source: SubmitSource,
+        read_source: ReadSource,
         caller_context: CallerContext,
         api_token: str,
-    )->None:
+    ) -> None:
         self._submit_source = submit_source
+        self._read_source = read_source
         self._caller_context = caller_context
-        self._expected_token = api_token.encode('ascii')
+        self._expected_token = api_token.encode("ascii")
         self._bearer = HTTPBearer(auto_error=False)
         self.router = APIRouter()
         self.router.add_api_route(
@@ -44,15 +49,18 @@ class SourceHTTPChannel:
             methods=["POST"],
             response_model=SourceAcceptanceReceipt,
         )
+        self.router.add_api_route(
+            "/sources/{source_id}",
+            self.get_source,
+            methods=["GET"],
+            response_model=SourceReadResult,
+        )
 
     async def _authenticate(self, request: Request) -> CallerContext:
         credentials = await self._bearer(request)
-        base_condition = credentials is None
-        condition = base_condition or not compare_digest(
-            credentials.credentials.encode('utf8'),
-            self._expected_token
-        )
-        if condition:
+        if credentials is None or not compare_digest(
+            credentials.credentials.encode("utf8"), self._expected_token
+        ):
             raise HTTPException(
                 status_code=401,
                 detail="Valid bearer token is required.",
@@ -72,19 +80,17 @@ class SourceHTTPChannel:
 
         try:
             return SourceSubmission.model_validate_json(body)
-        except ValidationError as err:
+        except ValidationError:
             raise HTTPException(status_code=422, detail="Invalid source submission") from None
 
-
-
     async def register_source(
-            self,
-            request: Request,
-            idempotency_key: Annotated[
-                str | None,
-                Header(alias="Idempotency-key", pattern=r"^[A-Za-z0-9_.:-]{1,128}$"),
-            ] = None,
-    )-> SourceAcceptanceReceipt:
+        self,
+        request: Request,
+        idempotency_key: Annotated[
+            str | None,
+            Header(alias="Idempotency-key", pattern=r"^[A-Za-z0-9_.:-]{1,128}$"),
+        ] = None,
+    ) -> SourceAcceptanceReceipt:
         context = await self._authenticate(request)
         submission = await self._read_submission(request)
 
@@ -96,15 +102,30 @@ class SourceHTTPChannel:
                 idempotency_key=idempotency_key,
             )
         except SourceSubmissionDenied:
-            raise HTTPException(
-                status_code=403,
-                detail="Source Creation denied"
-            ) from None
+            raise HTTPException(status_code=403, detail="Source Creation denied") from None
         except SourceRegistrationConflict:
             raise HTTPException(
                 status_code=409,
                 detail="Idempotency key already used for different submission.",
             ) from None
 
+    async def get_source(
+        self,
+        request: Request,
+        source_id: UUID4,
+        version: Annotated[int | None, Query(ge=1, le=2**63 - 1)] = None,
+    ) -> SourceReadResult:
+        context = await self._authenticate(request)
+        read_request = SourceReadRequest(source_id=source_id, version=version)
 
+        try:
+            return await run_in_threadpool(
+                self._read_source.execute,
+                request=read_request,
+                context=context,
+            )
+        except SourceReadDenied:
+            raise HTTPException(status_code=403, detail="Source read denied") from None
 
+        except SourceNotFound:
+            raise HTTPException(status_code=404, detail="Source version is unavailable") from None
