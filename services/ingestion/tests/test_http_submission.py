@@ -154,3 +154,37 @@ def test_update_preserves_history_and_rejects_stale_or_cross_tenant_requests(cli
     monkeypatch.setenv("INGESTION_TENANT_ID", "tenant_b")
     with TestClient(create_app()) as other:
         assert other.put(path, json=body, headers=_AUTH).status_code == 404
+
+
+def test_delete_hides_all_revisions_and_blocks_registration_retry(client, monkeypatch):
+    headers = {**_AUTH, "Idempotency-Key": "delete-demo"}
+    created = client.post("/sources", json=_BODY, headers=headers)
+    assert created.status_code == 200
+    source_id = created.json()["source_id"]
+    path = "/sources/" + source_id
+    assert client.delete(path, headers=_AUTH).status_code == 403
+
+    monkeypatch.setenv(
+        "INGESTION_PERMISSIONS", "source.create,source.read,source.update,source.delete"
+    )
+    body = {**_BODY, "expected_version": 1}
+    with TestClient(create_app()) as owner:
+        assert owner.put(path, headers=_AUTH, json=body).status_code == 200
+
+        monkeypatch.setenv("INGESTION_TENANT_ID", "tenant_b")
+        with TestClient(create_app()) as other:
+            assert other.delete(path, headers=_AUTH).status_code == 404
+
+        deleted = owner.delete(path, headers=_AUTH)
+        assert deleted.status_code == 200
+        assert deleted.json() == {"source_id": source_id, "status": "deleted"}
+        assert owner.delete(path, headers=_AUTH).status_code == 404
+        for suffix in ("", "?version=1", "?version=2"):
+            assert owner.get(path + suffix, headers=_AUTH).status_code == 404
+        assert owner.put(path, headers=_AUTH, json=body).status_code == 404
+
+    monkeypatch.setenv("INGESTION_TENANT_ID", "tenant_a")
+    with TestClient(create_app()) as reopened:
+        assert reopened.post("/sources", json=_BODY, headers=headers).status_code == 409
+        fresh = reopened.post("/sources", json=_BODY, headers=_AUTH)
+        assert fresh.status_code == 200 and fresh.json()["source_id"] != source_id

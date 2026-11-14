@@ -24,6 +24,10 @@ class SourceRegistrationConflict(RuntimeError):
     """
 
 
+class SourceDeletedConflict(SourceRegistrationConflict):
+    """The retry key belongs to a deleted source."""
+
+
 class SourceVersionConflict(RuntimeError):
     """The expected revision does not match the latest revision."""
 
@@ -112,4 +116,8 @@ class SourceStore(Protocol):
 
     def update(self, *, tenant_id: TenantId, request: SourceUpdateRequest) -> StoredSourceVersion:
         """Append a revision only if the expected version is still current."""
+        ...
+
+    def delete(self, *, tenant_id: TenantId, source_id: UUID) -> None:
+        """Hide all revisions and retain the original registration keys."""
         ...

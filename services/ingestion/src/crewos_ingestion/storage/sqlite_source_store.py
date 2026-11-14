@@ -12,6 +12,7 @@ from crewos_ingestion.contracts.input_contracts.source_registration import Sourc
 from crewos_ingestion.contracts.output_contracts.source_registration import SourceAcceptanceReceipt
 from crewos_ingestion.domain.source import StoredSourceVersion
 from crewos_ingestion.storage.source_store import (
+    SourceDeletedConflict,
     SourceNotFound,
     SourceRegistrationConflict,
     SourceVersionConflict,
@@ -36,6 +37,11 @@ CREATE TABLE IF NOT EXISTS source_registrations (
     PRIMARY KEY (tenant_id, idempotency_key),
     FOREIGN KEY (tenant_id, source_id, version)
     REFERENCES source_versions (tenant_id, source_id, version)
+);
+CREATE TABLE IF NOT EXISTS source_deletions (
+    tenant_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, source_id)
 );
 
 """
@@ -125,7 +131,11 @@ class SQLiteSourceStore:
                 s.version,
                 s.title,
                 s.content,
-                s.source_reference
+                s.source_reference,
+                EXISTS (
+                    SELECT 1 FROM source_deletions AS d
+                    WHERE d.tenant_id = s.tenant_id AND d.source_id = s.source_id
+                ) AS deleted
             FROM
                 source_registrations AS r
             JOIN
@@ -145,6 +155,8 @@ class SQLiteSourceStore:
     def _receipt_for_retry(
         self, existing: sqlite3.Row, submission: SourceSubmission
     ) -> SourceAcceptanceReceipt:
+        if existing["deleted"]:
+            raise SourceDeletedConflict("Idempotency key belongs to a deleted source")
         if (
             existing["title"] != submission.title
             or existing["content"] != submission.content
@@ -186,6 +198,11 @@ class SQLiteSourceStore:
             source_versions
         WHERE
             tenant_id = ? AND source_id = ?
+            AND NOT EXISTS (
+                SELECT 1 FROM source_deletions AS d
+                WHERE d.tenant_id = source_versions.tenant_id
+                  AND d.source_id = source_versions.source_id
+            )
         """
         params: tuple[str | int, ...] = (tenant_id, str(source_id))
 
@@ -227,3 +244,12 @@ class SQLiteSourceStore:
                 ),
             )
         return revision
+
+    def delete(self, *, tenant_id: TenantId, source_id: UUID) -> None:
+        with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            self._read_revision(db, tenant_id=tenant_id, source_id=source_id)
+            db.execute(
+                "INSERT INTO source_deletions (tenant_id, source_id) VALUES (?, ?)",
+                (tenant_id, str(source_id)),
+            )

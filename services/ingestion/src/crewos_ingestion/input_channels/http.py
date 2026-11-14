@@ -15,6 +15,7 @@ from crewos_ingestion.contracts.output_contracts.source_registration import Sour
 
 from crewos_ingestion.lifecycle.registration.submit_source import SubmitSource
 from crewos_ingestion.storage.source_store import (
+    SourceDeletedConflict,
     SourceNotFound,
     SourceRegistrationConflict,
     SourceVersionConflict,
@@ -22,16 +23,19 @@ from crewos_ingestion.storage.source_store import (
 from crewos_ingestion.submission_checks.checks import SourceSubmissionDenied
 
 from crewos_ingestion.contracts.input_contracts.source_lifecycle import (
+    SourceDeleteRequest,
     SourceReadRequest,
     SourceUpdateBody,
     SourceUpdateRequest,
 )
 from crewos_ingestion.contracts.output_contracts.source_lifecycle import (
+    SourceDeleteReceipt,
     SourceReadResult,
     SourceUpdateReceipt,
 )
 from crewos_ingestion.domain.source import SourceVersionLimitReached
 from crewos_ingestion.lifecycle.update_source import UpdateSource, SourceUpdateDenied
+from crewos_ingestion.lifecycle.delete_source import DeleteSource, SourceDeleteDenied
 from crewos_ingestion.lifecycle.read_source import ReadSource, SourceReadDenied
 
 MAX_REQUEST_BYTES = 8_000_000
@@ -49,12 +53,14 @@ class SourceHTTPChannel:
         submit_source: SubmitSource,
         read_source: ReadSource,
         update_source: UpdateSource,
+        delete_source: DeleteSource,
         caller_context: CallerContext,
         api_token: str,
     ) -> None:
         self._submit_source = submit_source
         self._read_source = read_source
         self._update_source = update_source
+        self._delete_source = delete_source
         self._caller_context = caller_context
         self._expected_token = api_token.encode("ascii")
         self._bearer = HTTPBearer(auto_error=False)
@@ -77,6 +83,13 @@ class SourceHTTPChannel:
             self.replace_source,
             methods=["PUT"],
             response_model=SourceUpdateReceipt,
+        )
+
+        self.router.add_api_route(
+            "/sources/{source_id}",
+            self.remove_source,
+            methods=["DELETE"],
+            response_model=SourceDeleteReceipt,
         )
 
     async def _authenticate(self, request: Request) -> CallerContext:
@@ -126,6 +139,10 @@ class SourceHTTPChannel:
             )
         except SourceSubmissionDenied:
             raise HTTPException(status_code=403, detail="Source Creation denied") from None
+        except SourceDeletedConflict:
+            raise HTTPException(
+                status_code=409, detail="Idempotency key belongs to a deleted source"
+            ) from None
         except SourceRegistrationConflict:
             raise HTTPException(
                 status_code=409,
@@ -167,3 +184,16 @@ class SourceHTTPChannel:
             raise HTTPException(status_code=404, detail="Source version is unavailable") from None
         except (SourceVersionConflict, SourceVersionLimitReached) as error:
             raise HTTPException(status_code=409, detail=str(error)) from None
+
+    async def remove_source(self, request: Request, source_id: UUID4) -> SourceDeleteReceipt:
+        context = await self._authenticate(request)
+        try:
+            return await run_in_threadpool(
+                self._delete_source.execute,
+                request=SourceDeleteRequest(source_id=source_id),
+                context=context,
+            )
+        except SourceDeleteDenied:
+            raise HTTPException(status_code=403, detail="Source delete denied") from None
+        except SourceNotFound:
+            raise HTTPException(status_code=404, detail="Source version is unavailable") from None
